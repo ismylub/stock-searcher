@@ -108,18 +108,16 @@ def delete_from_watchlist(ticker):
         df.to_csv(file_path, index=False)
 
 # =======================================================================
-# 🌐 전체 시장 종목 검색용 확장 사전 (2500+ 종목)
+# 🌐 전체 시장 종목 검색용 확장 사전 (KRX 차단 우회: 네이버 수집)
 # =======================================================================
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_all_korean_tickers_for_search():
     full_map = {}
     try:
-        krx = fdr.StockListing("KRX")
-        for _, r in krx.iterrows():
-            code = str(r["Code"]).zfill(6)
-            market = str(r.get("Market", ""))
-            suffix = ".KS" if "KOSPI" in market else ".KQ"
-            full_map[str(r["Name"])] = code + suffix
+        for market, suffix in [("KOSPI", ".KS"), ("KOSDAQ", ".KQ")]:
+            df = fdr.StockListing(market)
+            for _, r in df.iterrows():
+                full_map[str(r["Name"])] = str(r["Code"]).zfill(6) + suffix
     except:
         pass
     return full_map
@@ -178,7 +176,6 @@ def fetch_watchlist_data(tickers):
 
     for t in tickers:
         try:
-            # 🚀 yfinance 최신 버전에 맞춘 완벽한 데이터 추출 (1개 or 여러개 대응)
             if isinstance(group_data.columns, pd.MultiIndex):
                 df = group_data[t].copy()
             else:
@@ -321,31 +318,40 @@ def ask_gemini_analyst(
             continue
     return "🚨 API 키 소진 또는 에러 발생!"
 
+# =======================================================================
+# 🔥 핵심 데이터 수집 엔진 (KRX 차단 우회 -> 네이버 금융 연동)
+# =======================================================================
 @st.cache_data(ttl=1, show_spinner=False)
 def get_market_database(market_type):
     ticker_map = {}
     try:
         if "한국" in market_type:
-            # 🔥 무식한 번호순 컷팅 폐기! 시가총액(Marcap) 최상위 500개 우량주만 정밀 타겟팅
-            krx = fdr.StockListing("KRX")
-            # 스팩/우선주 제외, KOSPI와 KOSDAQ 보통주만 살림
-            krx = krx[krx['Market'].isin(['KOSPI', 'KOSDAQ'])]
+            # KRX 차단 완전 우회: 네이버에서 가져오는 KOSPI, KOSDAQ 데이터 사용
+            kpi = fdr.StockListing('KOSPI')
+            kpi['Suffix'] = '.KS'
+            kdq = fdr.StockListing('KOSDAQ')
+            kdq['Suffix'] = '.KQ'
             
-            # 시가총액(Marcap) 기준으로 내림차순 정렬
+            krx = pd.concat([kpi, kdq])
+            krx = krx.dropna(subset=['Code', 'Name'])
+            
+            # 스팩, 우선주 등 제외 (깔끔한 검색을 위해)
+            krx = krx[~krx['Name'].str.contains('스팩|제[0-9]+호', regex=True)]
+            krx = krx[~krx['Name'].str.endswith('우')]
+            krx = krx[~krx['Name'].str.endswith('우B')]
+            
+            # 시가총액 기준으로 강력하게 정렬!
             if 'Marcap' in krx.columns:
+                krx['Marcap'] = pd.to_numeric(krx['Marcap'], errors='coerce').fillna(0)
                 krx = krx.sort_values(by='Marcap', ascending=False)
             
-            # 든든한 상위 500개 기업 컷팅
             krx_top500 = krx.head(500)
             
             for _, r in krx_top500.iterrows():
                 code = str(r['Code']).zfill(6)
-                market = str(r['Market'])
-                suffix = ".KS" if "KOSPI" in market else ".KQ"
-                ticker_map[f"{code}{suffix}"] = str(r['Name'])
+                ticker_map[f"{code}{r['Suffix']}"] = str(r['Name'])
 
         else:
-            # 미국 시장 로직 (기존과 동일)
             sp500 = fdr.StockListing("S&P500")
             if "Name" in sp500.columns:
                 sp500 = sp500[
@@ -636,10 +642,15 @@ def fetch_news_rss(query, category):
 # =======================================================================
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_fdr_marcap():
-    krx = fdr.StockListing("KRX")
-    k_code = "Symbol" if "Symbol" in krx.columns else "Code"
-    krx[k_code] = krx[k_code].astype(str).str.zfill(6)
-    return {code: marcap for code, marcap in zip(krx[k_code], krx["Marcap"])}
+    try:
+        kpi = fdr.StockListing('KOSPI')
+        kdq = fdr.StockListing('KOSDAQ')
+        krx = pd.concat([kpi, kdq])
+        k_code = "Symbol" if "Symbol" in krx.columns else "Code"
+        krx[k_code] = krx[k_code].astype(str).str.zfill(6)
+        return {code: marcap for code, marcap in zip(krx[k_code], krx["Marcap"])}
+    except:
+        return {}
 
 def run_investing_decoder():
     st.subheader(
@@ -664,7 +675,7 @@ def run_investing_decoder():
 
         with st.spinner("메모 지문(가격+시가총액) 스캔 중... (0.01초 소요)"):
             market = st.session_state.get("k_market", "한국")
-            db = build_database(market, "일봉") # fund_map 제거됨
+            db = build_database(market, "일봉")
             name_map = get_market_database(market)
             marcap_dict = get_fdr_marcap()
 
@@ -817,60 +828,6 @@ def translate_yf_sector(sec):
         return "부동산"
     return "미분류"
 
-def map_krx_sector_to_gics(sec):
-    if not isinstance(sec, str) or sec == "nan" or not sec.strip():
-        return "미분류"
-    s = sec.lower()
-    if any(
-        x in s
-        for x in [
-            "소프트웨어", "컴퓨터", "반도체", "전자부품", "통신장비", "정보기술", "기록매체", "광학기기", "전동기", "전지",
-        ]
-    ):
-        return "정보기술 (IT)"
-    if any(
-        x in s
-        for x in ["의약", "의료", "보건", "바이오", "자연과학 및 공학 연구개발업"]
-    ):
-        return "헬스케어"
-    if any(
-        x in s
-        for x in ["금융", "은행", "보험", "증권", "신탁", "투자", "지주회사", "여신"]
-    ):
-        return "금융"
-    if any(
-        x in s
-        for x in [
-            "자동차", "도매", "소매", "숙박", "음식점", "의복", "섬유", "가구", "여가", "오락", "교육", "가전", "여행",
-        ]
-    ):
-        return "임의소비재"
-    if any(x in s for x in ["방송", "출판", "영상", "통신업", "정보서비스", "광고"]):
-        return "커뮤니케이션"
-    if any(
-        x in s
-        for x in [
-            "화학", "1차 금속", "비금속", "플라스틱", "고무", "제지", "목재", "펄프",
-        ]
-    ):
-        return "소재"
-    if any(x in s for x in ["식료품", "음료", "담배", "농업", "수산", "축산", "작물"]):
-        return "필수소비재"
-    if any(x in s for x in ["전기", "가스", "증기", "수도", "폐기물", "환경"]):
-        return "유틸리티"
-    if any(x in s for x in ["석유", "석탄", "광업"]):
-        return "에너지"
-    if any(x in s for x in ["부동산", "임대"]):
-        return "부동산"
-    if any(
-        x in s
-        for x in [
-            "기계", "건설", "건축", "토목", "조선", "항공", "운송", "물류", "장비", "엔지니어링", "선박", "무기", "제조업",
-        ]
-    ):
-        return "산업재"
-    return "미분류"
-
 @st.cache_data(ttl=86400, show_spinner=False)
 def sync_market_sectors_v8(market_type):
     db = load_sector_db()
@@ -879,25 +836,7 @@ def sync_market_sectors_v8(market_type):
     changed = False
 
     if "한국" in market_type:
-        try:
-            krx = fdr.StockListing("KRX-DESC")
-            sym_col = "Symbol" if "Symbol" in krx.columns else "Code"
-            sec_col = "Sector" if "Sector" in krx.columns else "Industry"
-
-            if sym_col and sec_col:
-                krx[sym_col] = krx[sym_col].astype(str).str.zfill(6)
-                krx_map = dict(zip(krx[sym_col], krx[sec_col]))
-
-                for tk in tickers:
-                    if tk not in db or db[tk] == "미분류":
-                        pure_code = tk.split(".")[0]
-                        official_sec = str(krx_map.get(pure_code, ""))
-                        mapped_sec = map_krx_sector_to_gics(official_sec)
-                        if mapped_sec != "미분류":
-                            db[tk] = mapped_sec
-                            changed = True
-        except:
-            pass
+        pass # 한국 시장 섹터는 아래의 자동 단어 맵핑으로 처리 (속도 최적화)
     else:
         try:
             sp500 = fdr.StockListing("S&P500")
@@ -914,8 +853,6 @@ def sync_market_sectors_v8(market_type):
                     changed = True
         except:
             pass
-
-    # 하드코딩 맵 생략 (최적화를 위해 자동 맵핑 활용)
 
     final_map = {}
     for tk in tickers:
@@ -1057,7 +994,7 @@ def start_100b_dashboard():
         if "matched_stocks" in st.session_state:
             del st.session_state["matched_stocks"]
 
-    st.set_page_config(page_title="나만의 주식 검색기 V6.0", layout="wide")
+    st.set_page_config(page_title="나만의 주식 검색기 V6.1", layout="wide")
 
     if "selected_ticker" not in st.session_state:
         st.session_state["selected_ticker"] = "NONE"
@@ -1089,7 +1026,7 @@ def start_100b_dashboard():
         unsafe_allow_html=True,
     )
 
-    st.title("📈 100억 벌고 싶다 (V6.0 초고속 스캔)")
+    st.title("📈 100억 벌고 싶다 (V6.1 초고속 스캔)")
     st.divider()
 
     tab1, tab2, tab3 = st.tabs(
@@ -1201,14 +1138,14 @@ def start_100b_dashboard():
 
             timeframe = "일봉"
 
-            # 🔥 신규 기능: 1년 고점 대비 낙폭 필터
-            st.markdown("### 📉 고점 대비 현재가 (낙폭)")
+            # 🔥 신규 기능: 1년 고저밴드 (Range) 위치 필터
+            st.markdown("### 📉 고저 밴드 내 현재가 위치")
             with st.container(border=True):
-                k_drop_cond = st.checkbox("🎯 1년 고점 대비 위치(%) 필터 적용", key="k_drop_cond")
+                k_drop_cond = st.checkbox("🎯 1년 고저밴드 위치(%) 필터 적용", key="k_drop_cond")
                 if k_drop_cond:
                     c1, c2 = st.columns(2, gap="small")
                     with c1:
-                        st.number_input("목표 위치(%)", 1, 100, 30, key="k_drop_target", help="예: 30을 넣으면 최고가의 30% 가격인 종목 탐색")
+                        st.number_input("목표 위치(%)", 1, 100, 30, key="k_drop_target", help="예: 30을 넣으면 최저점에서 30% 올라온 위치 탐색")
                     with c2:
                         st.number_input("오차 범위(±%)", 1, 50, 5, key="k_drop_margin", help="예: 5를 넣으면 25% ~ 35% 범위 탐색")
 
@@ -1475,7 +1412,7 @@ def start_100b_dashboard():
                         continue
 
                     year_high, year_low = 0, 0
-                    band_position = 0  # 밴드 내 위치
+                    band_position = 0
                     try:
                         last_year_df = df.tail(252 if timeframe == "일봉" else 52)
                         year_high = last_year_df["High_line"].max()
@@ -1486,11 +1423,11 @@ def start_100b_dashboard():
                     latest, prev = df.iloc[-1], df.iloc[-2]
                     cp = float(latest["Close_line"])
 
-                    # 🔥 유저 맞춤형 계산식: (현재가 - 저점) / (고점 - 저점) * 100
+                    # 🔥 완벽한 고저밴드 (Range) 위치 계산 로직
                     if year_high > 0 and (year_high - year_low) > 0:
                         band_position = ((cp - year_low) / (year_high - year_low)) * 100
 
-                    # 🔥 신규 고저 밴드 필터 로직
+                    # 🔥 신규 고저 밴드 위치 필터
                     if st.session_state.get("k_drop_cond", False):
                         t_ratio = st.session_state.get("k_drop_target", 30)
                         m_ratio = st.session_state.get("k_drop_margin", 5)
@@ -1710,7 +1647,7 @@ def start_100b_dashboard():
                             "현재가": item["현재가"],
                             "1년고": item.get("1년 최고", "-"),
                             "1년저": item.get("1년 최저", "-"),
-                            "고점대비(%)": item.get("고점대비", "0%"),
+                            "고저밴드(%)": item.get("고저밴드", "0%"),
                             "RSI": float(item.get("RSI", 0)),
                             "ST": float(item.get("Stoch %K", 0)),
                             "거래량%": item.get("거래량 비율", "0%"),
@@ -1729,12 +1666,11 @@ def start_100b_dashboard():
                         use_container_width=True,
                     )
 
-                # 🔥 오리지널 UI (PER, PBR 제거 및 고점대비 추가 버전)
                 col_ratio_tab1 = [1, 2, 1.5, 3, 2.0, 2, 1.5, 1.5, 1.5, 1, 1, 1.5]
                 h_cols = st.columns(col_ratio_tab1)
                 headers = [
                     "순번", "선택", "티커", "종목명", "섹터", "현재가", 
-                    "1년고", "1년저", "고점대비", "RSI", "ST", "거래량%",
+                    "1년고", "1년저", "고저밴드", "RSI", "ST", "거래량%",
                 ]
                 for i, h in enumerate(headers):
                     h_cols[i].write(f"**{h}**")
@@ -1791,7 +1727,7 @@ def start_100b_dashboard():
                         cols[5].write(item["현재가"])
                         cols[6].write(item.get("1년 최고", "-"))
                         cols[7].write(item.get("1년 최저", "-"))
-                        cols[8].write(item.get("고점대비", "0%"))
+                        cols[8].write(item.get("고저밴드", "0%"))
                         cols[9].write(str(item.get("RSI", 0)))
                         cols[10].write(str(item.get("Stoch %K", 0)))
                         cols[11].write(item.get("거래량 비율", "0%"))
@@ -2236,7 +2172,6 @@ def start_100b_dashboard():
                             final_name = search_term
                         else:
                             final_ticker = search_term_upper
-                            # 🔥 1차 방어: 우리 내부 DB에서 먼저 영문 풀네임 찾기!
                             if final_ticker in name_map_us:
                                 final_name = name_map_us[final_ticker]
                             else:
@@ -2246,7 +2181,6 @@ def start_100b_dashboard():
                             try:
                                 check_df = yf.download(final_ticker, period="1d", progress=False)
                                 if not check_df.empty:
-                                    # 🔥 2차 방어: 내부 DB에도 없는 종목이면 야후에서 이름 긁어오기
                                     if final_name == final_ticker:
                                         try:
                                             fetched_name = yf.Ticker(final_ticker).info.get('shortName', final_name)
@@ -2397,7 +2331,7 @@ def start_100b_dashboard():
                                 "종목명",
                                 "현재가",
                                 "등록일 (최신순)",
-                                "고점대비(%)",
+                                "고저밴드(%)",
                                 "RSI",
                                 "ST",
                             ],
@@ -2422,8 +2356,11 @@ def start_100b_dashboard():
                         rsi = tech_map.get(tk, {}).get("RSI", 0)
                         stoch = tech_map.get(tk, {}).get("ST", 0)
                         y_high = tech_map.get(tk, {}).get("1YearHigh", 0)
+                        y_low = tech_map.get(tk, {}).get("1YearLow", 0)
                         
-                        drop_pct = (price / y_high * 100) if y_high > 0 else 0
+                        band_pos = 0
+                        if y_high > 0 and (y_high - y_low) > 0:
+                            band_pos = ((price - y_low) / (y_high - y_low)) * 100
 
                         diff1_pct = (
                             ((tg1 - price) / price) * 100
@@ -2441,7 +2378,7 @@ def start_100b_dashboard():
                                 "price": price,
                                 "rsi": rsi,
                                 "stoch": stoch,
-                                "drop_pct": drop_pct,
+                                "band_pos": band_pos,
                                 "diff1_pct": diff1_pct,
                                 "sector": sector_map_watch.get(tk, "미분류"),
                             }
@@ -2456,8 +2393,8 @@ def start_100b_dashboard():
                         display_rows.sort(key=lambda x: x["price"], reverse=rev)
                     elif sort_by == "1차매수 근접도(%)":
                         display_rows.sort(key=lambda x: x["diff1_pct"], reverse=rev)
-                    elif sort_by == "고점대비(%)":
-                        display_rows.sort(key=lambda x: x["drop_pct"], reverse=rev)
+                    elif sort_by == "고저밴드(%)":
+                        display_rows.sort(key=lambda x: x["band_pos"], reverse=rev)
                     elif sort_by == "RSI":
                         display_rows.sort(key=lambda x: x["rsi"], reverse=rev)
                     elif sort_by == "ST":
@@ -2472,7 +2409,7 @@ def start_100b_dashboard():
                             "tg1",
                             "diff1_pct",
                             "tg2",
-                            "drop_pct",
+                            "band_pos",
                             "rsi",
                             "stoch",
                             "dt",
@@ -2486,7 +2423,7 @@ def start_100b_dashboard():
                         "1차매수가",
                         "1차매수_근접도(%)",
                         "2차매수가",
-                        "고점대비(%)",
+                        "고저밴드(%)",
                         "RSI",
                         "STOCH",
                         "등록일",
@@ -2503,7 +2440,6 @@ def start_100b_dashboard():
                             use_container_width=True,
                         )
 
-                    # 🔥 오리지널 UI (PER, PBR 제거 및 고점대비 추가 버전)
                     col_ratio = [1.0, 0.8, 1.2, 1.0, 0.8, 0.8, 0.8, 0.5, 0.5, 1.7]
                     hc = st.columns(col_ratio)
                     hc[0].write("**종목명**")
@@ -2512,7 +2448,7 @@ def start_100b_dashboard():
                     hc[3].write("**현재가**")
                     hc[4].write("**1차매수(%)**")
                     hc[5].write("**2차매수(%)**")
-                    hc[6].write("**고점대비**")
+                    hc[6].write("**고저밴드**")
                     hc[7].write("**RSI**")
                     hc[8].write("**ST**")
                     hc[9].write("**관리(수정/삭제)**")
@@ -2522,10 +2458,10 @@ def start_100b_dashboard():
                         for item in display_rows:
                             tk, nm, dt = item["tk"], item["nm"], item["dt"]
                             tg1, tg2, price = item["tg1"], item["tg2"], item["price"]
-                            rsi, stoch, drop_pct = (
+                            rsi, stoch, band_pos = (
                                 item["rsi"],
                                 item["stoch"],
-                                item["drop_pct"],
+                                item["band_pos"],
                             )
                             diff1_pct = item["diff1_pct"]
 
@@ -2589,7 +2525,7 @@ def start_100b_dashboard():
                             else:
                                 cc[5].write(tg2_fmt)
 
-                            cc[6].write(f"{drop_pct:.1f}%")
+                            cc[6].write(f"{band_pos:.1f}%")
                             cc[7].write(f"{rsi}")
                             cc[8].write(f"{stoch}")
 
