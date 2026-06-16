@@ -1666,7 +1666,7 @@ def start_100b_dashboard():
                             "1년 최저": f"{year_low:,.0f}"
                             if pd.notna(year_low) and year_low > 0
                             else "0",
-                            "고점대비": f"{drop_ratio:.1f}%",
+                            "고저밴드": f"{band_position:.1f}%",
                             "RSI": round(latest["RSI"], 1),
                             "Stoch %K": round(latest["Stoch_K"], 1),
                             "거래량 비율": f"{vol_ratio:.1f}%",
