@@ -2599,7 +2599,13 @@ def start_100b_dashboard():
                             try:
                                 check_df = yf.download(final_ticker, period="1d", progress=False)
                                 if not check_df.empty:
-                                    save_to_watchlist_local(final_ticker, final_name, 0.0, 0.0)
+                                    # 🔥 야후 파이낸스에서 실제 회사 이름(shortName) 긁어오기
+                                    try:
+                                        fetched_name = yf.Ticker(final_ticker).info.get('shortName', final_name)
+                                    except:
+                                        fetched_name = final_name
+                                        
+                                    save_to_watchlist_local(final_ticker, fetched_name, 0.0, 0.0)
                                     st.rerun()
                                 else:
                                     st.error("❌ 야후 파이낸스에서 찾을 수 없는 종목입니다. 티커 형식을 다시 확인해 주세요.")
