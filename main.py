@@ -7,7 +7,6 @@ from plotly.subplots import make_subplots
 import ta
 import pandas as pd
 import FinanceDataReader as fdr
-from pykrx import stock
 import datetime
 import pytz
 import os
@@ -16,8 +15,6 @@ from io import StringIO
 import xml.etree.ElementTree as ET
 import difflib
 import json
-
-print("DEBUG KRX_KEY:", os.environ.get("KRX_API_KEY", "없음")[:10])
 
 # =======================================================================
 # 🛡️ IP 차단 방지 글로벌 설정
@@ -115,7 +112,6 @@ def delete_from_watchlist(ticker):
 # =======================================================================
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_all_korean_tickers_for_search():
-    """한국 거래소 상장 전 종목(2500여 개)의 이름-티커 매핑을 만듭니다."""
     full_map = {}
     try:
         krx = fdr.StockListing("KRX")
@@ -127,24 +123,6 @@ def get_all_korean_tickers_for_search():
     except:
         pass
     return full_map
-
-# =======================================================================
-# ⚡ pykrx 기반 대량 펀더멘털 조회 (휴일 방어 적용)
-# =======================================================================
-@st.cache_data(ttl=43200, show_spinner=False)
-def get_bulk_fundamentals():
-    today = datetime.datetime.now()
-    for i in range(7):
-        d = (today - datetime.timedelta(days=i)).strftime("%Y%m%d")
-        try:
-            df_kpi = stock.get_market_fundamental(d, market="KOSPI")
-            if not df_kpi.empty and "PER" in df_kpi.columns:
-                df_kdq = stock.get_market_fundamental(d, market="KOSDAQ")
-                df_all = pd.concat([df_kpi, df_kdq])
-                return df_all
-        except Exception:
-            continue
-    return pd.DataFrame()
 
 # =======================================================================
 # ⚙️ 보조지표 및 데이터프레임 구조 생성 공통 함수
@@ -188,33 +166,19 @@ def process_technical_indicators(df):
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_watchlist_data(tickers):
     if not tickers:
-        return {}, {}
-    fund_map, tech_map = {}, {}
-
-    df_fund = get_bulk_fundamentals()
-    for t in tickers:
-        code = t.split(".")[0]
-        if not df_fund.empty and code in df_fund.index:
-            per_val = df_fund.loc[code, "PER"]
-            pbr_val = df_fund.loc[code, "PBR"]
-            fund_map[t] = {
-                "PER": float(per_val) if pd.notna(per_val) else 0.0,
-                "PBR": float(pbr_val) if pd.notna(pbr_val) else 0.0
-            }
-        else:
-            fund_map[t] = {"PER": 0.0, "PBR": 0.0}
+        return {}
+    tech_map = {}
 
     kwargs = {"progress": False}
     if USE_PROXY: kwargs['proxy'] = PROXY_IP
     
-    # 🔥 group_by="ticker" 완벽 복구
     group_data = yf.download(
         tickers, period="6mo", interval="1d", group_by="ticker", threads=True, **kwargs
     )
 
     for t in tickers:
         try:
-            # 🚀 yfinance 최신 버전에 맞춘 완벽한 데이터 추출
+            # 🚀 yfinance 최신 버전에 맞춘 완벽한 데이터 추출 (1개 or 여러개 대응)
             if isinstance(group_data.columns, pd.MultiIndex):
                 df = group_data[t].copy()
             else:
@@ -240,10 +204,10 @@ def fetch_watchlist_data(tickers):
                 "1YearHigh": y_high, 
                 "1YearLow": y_low
             }
-        except Exception as e:
+        except Exception:
             tech_map[t] = {"Price": 0.0, "RSI": 0.0, "ST": 0.0, "1YearHigh": 0.0, "1YearLow": 0.0}
             
-    return tech_map, fund_map
+    return tech_map
 
 # =======================================================================
 # 🔑 API 및 기업 개요 조회
@@ -284,7 +248,7 @@ def fetch_company_profile_only(ticker, market_type):
     return "설명 보류"
 
 def ask_gemini_analyst(
-    ticker, comp_name, df, per, pbr, market_type, time_frame_label, profile, ai_scores
+    ticker, comp_name, df, market_type, time_frame_label, profile, ai_scores
 ):
     valid_keys = load_keys_safely()
     if not valid_keys:
@@ -302,14 +266,10 @@ def ask_gemini_analyst(
         exchange_rate_info = "현재 원/달러 환율: 실시간 데이터 확인 불가"
 
     fundamental_inst = (
-        "- PER/PBR/ROE 수치를 현재 업황과 결부시켜 평가."
-        if time_frame_label == "일봉"
-        else "- 현재 업황과 결부시켜 기업 펀더멘털 평가."
+        "- 가격 위치와 차트의 흐름을 현재 업황과 결부시켜 기술적/가치적 평가."
     )
     fundamental_info = (
-        f"- 기업 개요: {profile} | PER: {per} | PBR: {pbr}"
-        if "한국" in market_type
-        else f"- 기업 개요: {profile}"
+        f"- 기업 개요: {profile}"
     )
     broker_inst = (
         "■ 3.5. 주요 증권사 컨센서스\n- 제공된 구글 검색 도구로 국내 최신 리포트 동향을 검색하여 반영."
@@ -331,7 +291,7 @@ def ask_gemini_analyst(
     - 역추세 전문가(DeepSeek): {ai_scores.get("deepseek", 0)}점
 
     ■ 1. 거시경제 및 업황 브리핑
-    ■ 2. 펀더멘털 평가 ({fundamental_inst})
+    ■ 2. 주가 레벨 평가 ({fundamental_inst})
     ■ 3. 4인 전문가 위원회 의견 및 종합 결론
     ■ 4. 지지/저항 및 기술 분석
     {broker_inst}
@@ -456,38 +416,22 @@ def build_database(market_type, timeframe="일봉"):
         tickers, period=p, interval=i, group_by="ticker", threads=True, **kwargs
     )
 
-    fund_map = {}
-    if "한국" in market_type:
-        df_fund = get_bulk_fundamentals()
-        for t in tickers:
-            code = t.split(".")[0]
-            if not df_fund.empty and code in df_fund.index:
-                per_val = df_fund.loc[code, "PER"]
-                pbr_val = df_fund.loc[code, "PBR"]
-                fund_map[t] = {
-                    "PER": float(per_val) if pd.notna(per_val) else 0.0,
-                    "PBR": float(pbr_val) if pd.notna(pbr_val) else 0.0
-                }
-            else:
-                fund_map[t] = {"PER": 0.0, "PBR": 0.0}
-    else:
-        fund_map = {t: {"PER": 0.0, "PBR": 0.0} for t in tickers}
-
     all_data = {}
     for t in tickers:
         try:
-            df = (
-                group_data[t].dropna(how="all")
-                if isinstance(group_data.columns, pd.MultiIndex)
-                else group_data.dropna(how="all")
-            )
+            if isinstance(group_data.columns, pd.MultiIndex):
+                df = group_data[t].copy()
+            else:
+                df = group_data.copy()
+            
+            df = df.dropna(how="all")
             df = process_technical_indicators(df)
             if not df.empty:
                 all_data[t] = df
         except:
             continue
             
-    return all_data, fund_map
+    return all_data
 
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_specific_timeframe_data(ticker, selection):
@@ -569,7 +513,7 @@ def get_macro_score(market_type):
         return 10
     return 10
 
-def calculate_persona_scores(ticker, df, per, pbr, market_type, skip_naver=False):
+def calculate_persona_scores(ticker, df, market_type, skip_naver=False):
     latest, prev = df.iloc[-1], df.iloc[-2]
     supply_score = 5
     if not skip_naver and "한국" in market_type:
@@ -609,19 +553,17 @@ def calculate_persona_scores(ticker, df, per, pbr, market_type, skip_naver=False
         elif ratio >= 1.0:
             vol_score = 10
 
-    val_score = 0
-    if 0 < pbr < 1.5:
-        val_score += 10
-    elif 1.5 <= pbr < 3.0:
-        val_score += 5
-    elif pbr > 5.0:
-        val_score -= 5
-    if 0 < per < 15:
-        val_score += 10
-    elif 15 <= per < 30:
-        val_score += 5
-    elif per > 80 or per == 0:
-        val_score -= 5
+    val_score = 10
+    try:
+        y_high = df["High_line"].tail(252).max()
+        if y_high > 0:
+            drop_ratio = latest["Close_line"] / y_high
+            if drop_ratio < 0.5:
+                val_score += 10
+            elif drop_ratio < 0.7:
+                val_score += 5
+    except:
+        pass
     val_score = max(0, min(20, val_score))
 
     macro_score = get_macro_score(market_type)
@@ -730,7 +672,7 @@ def run_investing_decoder():
         "🕵️‍♂️ 유료 블러 역추적 디코더 (https://kr.investing.com/equities/most-undervalued)"
     )
     st.write(
-        "이미 로드된 500개 종목 풀에서 **[현재가, PER, 시가총액]** 3중 필터를 가동해 즉시 찾아냅니다."
+        "이미 로드된 500개 종목 풀에서 **[현재가, 시가총액]** 필터를 가동해 즉시 찾아냅니다."
     )
 
     pasted_data = st.text_area(
@@ -740,7 +682,7 @@ def run_investing_decoder():
     )
 
     if st.button(
-        "🚀 캐시 기반 3중 융합 스나이퍼 가동", type="primary", use_container_width=True
+        "🚀 캐시 기반 융합 스나이퍼 가동", type="primary", use_container_width=True
     ):
         if not pasted_data.strip():
             st.warning("데이터를 입력해주세요.")
@@ -748,7 +690,7 @@ def run_investing_decoder():
 
         with st.spinner("메모 지문(가격+시가총액) 스캔 중... (0.01초 소요)"):
             market = st.session_state.get("k_market", "한국")
-            db, fund_map = build_database(market, "일봉")
+            db = build_database(market, "일봉") # fund_map 제거됨
             name_map = get_market_database(market)
             marcap_dict = get_fdr_marcap()
 
@@ -771,14 +713,9 @@ def run_investing_decoder():
                         line_clean,
                     )
 
-                    target_per, target_marcap_raw, target_marcap_computed = (
-                        None, None, None,
-                    )
+                    target_marcap_raw, target_marcap_computed = None, None
 
                     if end_match:
-                        per_str = end_match.group(2)
-                        target_per = float(per_str) if per_str != "-" else None
-
                         target_marcap_raw = end_match.group(4)
                         numeric_part = float(re.sub(r"[TBM]", "", target_marcap_raw))
                         if "T" in target_marcap_raw:
@@ -798,22 +735,8 @@ def run_investing_decoder():
 
                         if (target_price - margin) <= cp <= (target_price + margin):
                             code = tk.split(".")[0]
-                            tk_per = fund_map.get(tk, {}).get("PER", 0)
                             tk_marcap = marcap_dict.get(code, 0)
-
-                            pass_per = True
                             pass_marcap = True
-
-                            if target_per is not None:
-                                if target_per > 0:
-                                    if tk_per > 0:
-                                        if abs(target_per - tk_per) / tk_per > 0.30:
-                                            pass_per = False
-                                    else:
-                                        pass_per = False
-                                else:
-                                    if tk_per > 0:
-                                        pass_per = False
 
                             if target_marcap_computed is not None and tk_marcap > 0:
                                 if not (
@@ -823,30 +746,21 @@ def run_investing_decoder():
                                 ):
                                     pass_marcap = False
 
-                            if pass_per and pass_marcap:
-                                final_candidates.append(
-                                    f"🎯{name_map.get(tk, tk)} (PER:{tk_per})"
-                                )
+                            if pass_marcap:
+                                final_candidates.append(f"🎯{name_map.get(tk, tk)}")
 
                     results.append(
                         {
                             "입력 현재가": f"{target_price:,.0f}원",
-                            "목표 PER": f"{target_per}" if target_per else "N/A",
-                            "목표 시가총액": f"{target_marcap_raw}"
-                            if target_marcap_raw
-                            else "N/A",
-                            "🔍 최종 저격 종목": " | ".join(final_candidates)
-                            if final_candidates
-                            else "❌ 일치 없음",
+                            "목표 시가총액": f"{target_marcap_raw}" if target_marcap_raw else "N/A",
+                            "🔍 최종 저격 종목": " | ".join(final_candidates) if final_candidates else "❌ 일치 없음",
                         }
                     )
                 except Exception:
                     continue
 
             if results:
-                st.success(
-                    "🎯 시가총액+PER 기반 초정밀 스나이퍼 매칭이 완료되었습니다!"
-                )
+                st.success("🎯 시가총액 기반 초정밀 스나이퍼 매칭이 완료되었습니다!")
                 st.dataframe(pd.DataFrame(results), use_container_width=True)
             else:
                 st.error("추출할 수 유효한 데이터가 없습니다.")
@@ -936,16 +850,7 @@ def map_krx_sector_to_gics(sec):
     if any(
         x in s
         for x in [
-            "소프트웨어",
-            "컴퓨터",
-            "반도체",
-            "전자부품",
-            "통신장비",
-            "정보기술",
-            "기록매체",
-            "광학기기",
-            "전동기",
-            "전지",
+            "소프트웨어", "컴퓨터", "반도체", "전자부품", "통신장비", "정보기술", "기록매체", "광학기기", "전동기", "전지",
         ]
     ):
         return "정보기술 (IT)"
@@ -962,19 +867,7 @@ def map_krx_sector_to_gics(sec):
     if any(
         x in s
         for x in [
-            "자동차",
-            "도매",
-            "소매",
-            "숙박",
-            "음식점",
-            "의복",
-            "섬유",
-            "가구",
-            "여가",
-            "오락",
-            "교육",
-            "가전",
-            "여행",
+            "자동차", "도매", "소매", "숙박", "음식점", "의복", "섬유", "가구", "여가", "오락", "교육", "가전", "여행",
         ]
     ):
         return "임의소비재"
@@ -983,14 +876,7 @@ def map_krx_sector_to_gics(sec):
     if any(
         x in s
         for x in [
-            "화학",
-            "1차 금속",
-            "비금속",
-            "플라스틱",
-            "고무",
-            "제지",
-            "목재",
-            "펄프",
+            "화학", "1차 금속", "비금속", "플라스틱", "고무", "제지", "목재", "펄프",
         ]
     ):
         return "소재"
@@ -1005,19 +891,7 @@ def map_krx_sector_to_gics(sec):
     if any(
         x in s
         for x in [
-            "기계",
-            "건설",
-            "건축",
-            "토목",
-            "조선",
-            "항공",
-            "운송",
-            "물류",
-            "장비",
-            "엔지니어링",
-            "선박",
-            "무기",
-            "제조업",
+            "기계", "건설", "건축", "토목", "조선", "항공", "운송", "물류", "장비", "엔지니어링", "선박", "무기", "제조업",
         ]
     ):
         return "산업재"
@@ -1067,184 +941,7 @@ def sync_market_sectors_v8(market_type):
         except:
             pass
 
-    # 하드코딩 마스터 맵
-    hardcoded = {
-        "042700.KS": "정보기술 (IT)",
-        "083450.KQ": "정보기술 (IT)",
-        "311320.KQ": "헬스케어",
-        "475150.KS": "에너지",
-        "060370.KS": "산업재",
-        "126340.KQ": "산업재",
-        "336370.KS": "소재",
-        "033500.KQ": "산업재",
-        "453340.KS": "필수소비재",
-        "010060.KS": "소재",
-        "023160.KQ": "산업재",
-        "077360.KQ": "정보기술 (IT)",
-        "089890.KQ": "정보기술 (IT)",
-        "082270.KQ": "헬스케어",
-        "041830.KQ": "헬스케어",
-        "089010.KQ": "정보기술 (IT)",
-        "045100.KQ": "산업재",
-        "093320.KQ": "정보기술 (IT)",
-        "005930.KS": "정보기술 (IT)",
-        "000660.KS": "정보기술 (IT)",
-        "402340.KS": "정보기술 (IT)",
-        "005380.KS": "임의소비재",
-        "009150.KS": "정보기술 (IT)",
-        "373220.KS": "정보기술 (IT)",
-        "032830.KS": "금융",
-        "028260.KS": "산업재",
-        "329180.KS": "산업재",
-        "034020.KS": "산업재",
-        "012450.KS": "산업재",
-        "006400.KS": "정보기술 (IT)",
-        "010120.KS": "산업재",
-        "267260.KS": "산업재",
-        "012630.KS": "산업재",
-        "088980.KS": "부동산",
-        "003490.KS": "산업재",
-        "036530.KS": "금융",
-        "000120.KS": "산업재",
-        "009830.KS": "소재",
-        "015760.KS": "유틸리티",
-        "073240.KS": "임의소비재",
-        "035420.KS": "커뮤니케이션",
-        "035720.KS": "커뮤니케이션",
-        "051910.KS": "소재",
-        "207940.KS": "헬스케어",
-        "068270.KS": "헬스케어",
-        "000270.KS": "임의소비재",
-        "005490.KS": "소재",
-        "105560.KS": "금융",
-        "055550.KS": "금융",
-        "012330.KS": "임의소비재",
-        "066570.KS": "정보기술 (IT)",
-        "003670.KS": "소재",
-        "024110.KS": "금융",
-        "034730.KS": "금융",
-        "011200.KS": "산업재",
-        "033780.KS": "필수소비재",
-        "042660.KS": "산업재",
-        "298040.KS": "산업재",
-        "006800.KS": "금융",
-        "086790.KS": "금융",
-        "000150.KS": "산업재",
-        "011070.KS": "정보기술 (IT)",
-        "000810.KS": "금융",
-        "010130.KS": "소재",
-        "009540.KS": "산업재",
-        "017670.KS": "커뮤니케이션",
-        "307950.KS": "정보기술 (IT)",
-        "010140.KS": "산업재",
-        "018260.KS": "정보기술 (IT)",
-        "064350.KS": "산업재",
-        "316140.KS": "금융",
-        "267250.KS": "산업재",
-        "003550.KS": "산업재",
-        "096770.KS": "에너지",
-        "247540.KQ": "소재",
-        "196170.KQ": "헬스케어",
-        "272210.KS": "산업재",
-        "086520.KQ": "소재",
-        "086280.KS": "산업재",
-        "079550.KS": "산업재",
-        "278470.KS": "임의소비재",
-        "000720.KS": "산업재",
-        "277810.KQ": "산업재",
-        "047810.KS": "산업재",
-        "071050.KS": "금융",
-        "006260.KS": "산업재",
-        "036930.KQ": "정보기술 (IT)",
-        "259960.KS": "커뮤니케이션",
-        "064400.KS": "정보기술 (IT)",
-        "064400.KQ": "정보기술 (IT)",
-        "005940.KS": "금융",
-        "016360.KS": "금융",
-        "950160.KQ": "헬스케어",
-        "000250.KQ": "헬스케어",
-        "087010.KQ": "헬스케어",
-        "066970.KS": "소재",
-        "095340.KQ": "정보기술 (IT)",
-        "214370.KQ": "헬스케어",
-        "043260.KQ": "정보기술 (IT)",
-        "030200.KS": "커뮤니케이션",
-        "010950.KS": "에너지",
-        "0126Z0.KS": "금융",
-        "007660.KS": "정보기술 (IT)",
-        "028050.KS": "산업재",
-        "352820.KS": "커뮤니케이션",
-        "000880.KS": "산업재",
-        "001440.KS": "산업재",
-        "180640.KS": "산업재",
-        "000990.KS": "정보기술 (IT)",
-        "078930.KS": "에너지",
-        "032640.KS": "커뮤니케이션",
-        "004170.KS": "임의소비재",
-        "036570.KS": "커뮤니케이션",
-        "011790.KS": "소재",
-        "440110.KQ": "정보기술 (IT)",
-        "082920.KQ": "정보기술 (IT)",
-        "007390.KQ": "헬스케어",
-        "039200.KQ": "헬스케어",
-        "101490.KQ": "정보기술 (IT)",
-        "099320.KQ": "산업재",
-        "050890.KQ": "정보기술 (IT)",
-        # 미국
-        "ASML": "정보기술 (IT)",
-        "ARM": "정보기술 (IT)",
-        "MRVL": "정보기술 (IT)",
-        "SHOP": "정보기술 (IT)",
-        "PDD": "임의소비재",
-        "SNY": "헬스케어",
-        "MELI": "임의소비재",
-        "ABNB": "임의소비재",
-        "GOOGL": "커뮤니케이션",
-        "GOOG": "커뮤니케이션",
-        "AMZN": "임의소비재",
-        "AAPL": "정보기술 (IT)",
-        "CHTR": "커뮤니케이션",
-        "CTAS": "산업재",
-        "NVDA": "정보기술 (IT)",
-        "MSFT": "정보기술 (IT)",
-        "TSLA": "임의소비재",
-        "META": "커뮤니케이션",
-        "BRK-B": "금융",
-        "LLY": "헬스케어",
-        "AVGO": "정보기술 (IT)",
-        "V": "금융",
-        "JPM": "금융",
-        "UNH": "헬스케어",
-        "XOM": "에너지",
-        "MA": "금융",
-        "PG": "필수소비재",
-        "JNJ": "헬스케어",
-        "HD": "산업재",
-        "MRK": "헬스케어",
-        "ABBV": "헬스케어",
-        "CVX": "에너지",
-        "CRM": "정보기술 (IT)",
-        "AMD": "정보기술 (IT)",
-        "KO": "필수소비재",
-        "PEP": "필수소비재",
-        "BAC": "금융",
-        "TMO": "헬스케어",
-        "COST": "필수소비재",
-        "MCD": "임의소비재",
-        "CSCO": "정보기술 (IT)",
-        "WMT": "필수소비재",
-        "NTES": "커뮤니케이션",
-        "NBIS": "정보기술 (IT)",
-    }
-
-    for tk in tickers:
-        if tk in hardcoded:
-            if db.get(tk) != hardcoded[tk]:
-                db[tk] = hardcoded[tk]
-                changed = True
-
-    if changed:
-        save_sector_db(db)
+    # 하드코딩 맵 생략 (최적화를 위해 자동 맵핑 활용)
 
     final_map = {}
     for tk in tickers:
@@ -1346,6 +1043,9 @@ def sync_market_sectors_v8(market_type):
                 val = "부동산"
         final_map[tk] = val
 
+    if changed:
+        save_sector_db(db)
+
     return final_map
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -1376,13 +1076,14 @@ def start_100b_dashboard():
             "k_inv_m": 5, "k_inv_n": 3, "k_vol_rank": False, "k_ma_s": 5, "k_ma_l": 120,
             "k_ma_c": "조건없음", "k_bb_sq": False, "k_bb_sq_n": 20, "k_bb_sq_pct": 5.0,
             "k_maup_n": 20, "k_maup_m": 5, "k_maup_cond": "조건없음", "k_sector": "조건없음",
+            "k_drop_cond": False, "k_drop_target": 30, "k_drop_margin": 5,
         }
         for k, v in defaults.items():
             st.session_state[k] = v
         if "matched_stocks" in st.session_state:
             del st.session_state["matched_stocks"]
 
-    st.set_page_config(page_title="나만의 주식 검색기 V5.0", layout="wide")
+    st.set_page_config(page_title="나만의 주식 검색기 V6.0", layout="wide")
 
     if "selected_ticker" not in st.session_state:
         st.session_state["selected_ticker"] = "NONE"
@@ -1414,7 +1115,7 @@ def start_100b_dashboard():
         unsafe_allow_html=True,
     )
 
-    st.title("📈 100억 벌고 싶다 (V5.0 초고속 스캔)")
+    st.title("📈 100억 벌고 싶다 (V6.0 초고속 스캔)")
     st.divider()
 
     tab1, tab2, tab3 = st.tabs(
@@ -1496,34 +1197,22 @@ def start_100b_dashboard():
                             "k_inv_type", "k_inv_m", "k_inv_n", "k_vol_rank", "k_ma_s",
                             "k_ma_l", "k_ma_c", "k_bb_sq", "k_bb_sq_n", "k_bb_sq_pct",
                             "k_maup_n", "k_maup_m", "k_maup_cond", "k_sector",
+                            "k_drop_cond", "k_drop_target", "k_drop_margin"
                         ]
                         current_data = {}
                         for k in keys_to_save:
                             val = st.session_state.get(k)
                             if val is None:
-                                if k == "k_rsi":
-                                    val = (0, 100)
-                                elif k in ["k_vol_rank", "k_bb_sq"]:
-                                    val = False
-                                elif k in [
-                                    "k_ma_n",
-                                    "k_vol_n",
-                                    "k_bb_sq_n",
-                                    "k_maup_n",
-                                ]:
-                                    val = 20
-                                elif k in ["k_ma_s", "k_inv_m", "k_maup_m"]:
-                                    val = 5
-                                elif k == "k_ma_l":
-                                    val = 120
-                                elif k == "k_inv_n":
-                                    val = 3
-                                elif k == "k_bb_sq_pct":
-                                    val = 5.0
-                                elif k == "k_market":
-                                    val = "한국"
-                                else:
-                                    val = "조건없음"
+                                if k == "k_rsi": val = (0, 100)
+                                elif k in ["k_vol_rank", "k_bb_sq", "k_drop_cond"]: val = False
+                                elif k in ["k_ma_n", "k_vol_n", "k_bb_sq_n", "k_maup_n"]: val = 20
+                                elif k in ["k_ma_s", "k_inv_m", "k_maup_m", "k_drop_margin"]: val = 5
+                                elif k == "k_ma_l": val = 120
+                                elif k == "k_inv_n": val = 3
+                                elif k == "k_bb_sq_pct": val = 5.0
+                                elif k == "k_drop_target": val = 30
+                                elif k == "k_market": val = "한국"
+                                else: val = "조건없음"
                             current_data[k] = val
 
                         save_filter_preset(new_preset_name.strip(), current_data)
@@ -1533,12 +1222,21 @@ def start_100b_dashboard():
             st.divider()
 
             st.markdown("### 🚀 종목 스캔")
-            scan_action_placeholder = (
-                st.empty()
-            )  
+            scan_action_placeholder = st.empty()  
             st.divider()
 
             timeframe = "일봉"
+
+            # 🔥 신규 기능: 1년 고점 대비 낙폭 필터
+            st.markdown("### 📉 고점 대비 현재가 (낙폭)")
+            with st.container(border=True):
+                k_drop_cond = st.checkbox("🎯 1년 고점 대비 위치(%) 필터 적용", key="k_drop_cond")
+                if k_drop_cond:
+                    c1, c2 = st.columns(2, gap="small")
+                    with c1:
+                        st.number_input("목표 위치(%)", 1, 100, 30, key="k_drop_target", help="예: 30을 넣으면 최고가의 30% 가격인 종목 탐색")
+                    with c2:
+                        st.number_input("오차 범위(±%)", 1, 50, 5, key="k_drop_margin", help="예: 5를 넣으면 25% ~ 35% 범위 탐색")
 
             st.markdown("### 📊 추세")
             c1, c2 = st.columns([35, 65], gap="small")
@@ -1676,19 +1374,9 @@ def start_100b_dashboard():
             st.markdown("### 🏢 섹터 필터")
             with st.container(border=True):
                 avail_sectors = [
-                    "조건없음",
-                    "정보기술 (IT)",
-                    "금융",
-                    "헬스케어",
-                    "임의소비재",
-                    "커뮤니케이션",
-                    "산업재",
-                    "필수소비재",
-                    "에너지",
-                    "소재",
-                    "유틸리티",
-                    "부동산",
-                    "미분류",
+                    "조건없음", "정보기술 (IT)", "금융", "헬스케어", "임의소비재",
+                    "커뮤니케이션", "산업재", "필수소비재", "에너지", "소재", "유틸리티",
+                    "부동산", "미분류",
                 ]
                 st.markdown(
                     '<div class="inline-label" style="margin-bottom: 5px;">섹터 선택</div>',
@@ -1755,9 +1443,9 @@ def start_100b_dashboard():
             if search_btn:
                 st.session_state["selected_ticker"] = "NONE"
                 with st.spinner(
-                    f"글로벌 데이터({timeframe}) 스캔 중... (AI 연산 제거로 초고속!)"
+                    f"글로벌 데이터({timeframe}) 스캔 중... (무거운 실적 수집 제거로 초고속!)"
                 ):
-                    db, fund_map = build_database(market, timeframe)
+                    db = build_database(market, timeframe)
 
                 with st.spinner(
                     f"섹터 DB 점검 및 동기화 중... (최초 1회만 데이터 수집)"
@@ -1813,17 +1501,26 @@ def start_100b_dashboard():
                         continue
 
                     year_high, year_low = 0, 0
+                    drop_ratio = 0
                     try:
                         last_year_df = df.tail(252 if timeframe == "일봉" else 52)
-                        year_high, year_low = (
-                            last_year_df["High_line"].max(),
-                            last_year_df["Low_line"].min(),
-                        )
+                        year_high = last_year_df["High_line"].max()
+                        year_low = last_year_df["Low_line"].min()
                     except:
                         pass
 
                     latest, prev = df.iloc[-1], df.iloc[-2]
                     cp = float(latest["Close_line"])
+
+                    if year_high > 0:
+                        drop_ratio = (cp / year_high) * 100
+
+                    # 🔥 신규 낙폭 필터 로직
+                    if st.session_state.get("k_drop_cond", False):
+                        t_ratio = st.session_state.get("k_drop_target", 30)
+                        m_ratio = st.session_state.get("k_drop_margin", 5)
+                        if year_high == 0 or not (t_ratio - m_ratio <= drop_ratio <= t_ratio + m_ratio):
+                            continue
 
                     if not (rsi_min <= latest["RSI"] <= rsi_max):
                         continue
@@ -1968,8 +1665,7 @@ def start_100b_dashboard():
                             "1년 최저": f"{year_low:,.0f}"
                             if pd.notna(year_low) and year_low > 0
                             else "0",
-                            "PBR": fund_map.get(ticker, {}).get("PBR", 0),
-                            "PER": fund_map.get(ticker, {}).get("PER", 0),
+                            "고점대비": f"{drop_ratio:.1f}%",
                             "RSI": round(latest["RSI"], 1),
                             "Stoch %K": round(latest["Stoch_K"], 1),
                             "거래량 비율": f"{vol_ratio:.1f}%",
@@ -1992,7 +1688,6 @@ def start_100b_dashboard():
                         "matched_stocks": matched_stocks if matched_stocks else "NONE",
                         "debug_list": debug_list,
                         "current_market": market,
-                        "fund_map": fund_map,
                         "filtered_list": debug_list,
                     }
                 )
@@ -2002,11 +1697,10 @@ def start_100b_dashboard():
         elif isinstance(
             st.session_state.get("matched_stocks"), dict
         ) and st.session_state.get("matched_stocks"):
-            ms, dl, c_m, f_map = (
+            ms, dl, c_m = (
                 st.session_state["matched_stocks"],
                 st.session_state["debug_list"],
                 st.session_state["current_market"],
-                st.session_state["fund_map"],
             )
             n_map = get_market_database(c_m)
             sector_map = sync_market_sectors_v8(c_m)
@@ -2041,8 +1735,7 @@ def start_100b_dashboard():
                             "현재가": item["현재가"],
                             "1년고": item.get("1년 최고", "-"),
                             "1년저": item.get("1년 최저", "-"),
-                            "PBR": float(item.get("PBR", 0)),
-                            "PER": float(item.get("PER", 0)),
+                            "고점대비(%)": item.get("고점대비", "0%"),
                             "RSI": float(item.get("RSI", 0)),
                             "ST": float(item.get("Stoch %K", 0)),
                             "거래량%": item.get("거래량 비율", "0%"),
@@ -2061,22 +1754,12 @@ def start_100b_dashboard():
                         use_container_width=True,
                     )
 
-                # 🔥 오리지널 UI 완벽 복구
-                h_cols = st.columns([1, 2, 1.5, 3, 2.0, 2, 1.5, 1.5, 1.2, 1, 1, 1, 1.5])
+                # 🔥 오리지널 UI (PER, PBR 제거 및 고점대비 추가 버전)
+                col_ratio_tab1 = [1, 2, 1.5, 3, 2.0, 2, 1.5, 1.5, 1.5, 1, 1, 1.5]
+                h_cols = st.columns(col_ratio_tab1)
                 headers = [
-                    "순번",
-                    "선택",
-                    "티커",
-                    "종목명",
-                    "섹터",
-                    "현재가",
-                    "1년고",
-                    "1년저",
-                    "PBR",
-                    "PER",
-                    "RSI",
-                    "ST",
-                    "거래량%",
+                    "순번", "선택", "티커", "종목명", "섹터", "현재가", 
+                    "1년고", "1년저", "고점대비", "RSI", "ST", "거래량%",
                 ]
                 for i, h in enumerate(headers):
                     h_cols[i].write(f"**{h}**")
@@ -2084,9 +1767,7 @@ def start_100b_dashboard():
 
                 with st.container(height=400):
                     for i, item in enumerate(filtered_list):
-                        cols = st.columns(
-                            [1, 2, 1.5, 3, 2.0, 2, 1.5, 1.5, 1.2, 1, 1, 1, 1.5]
-                        )
+                        cols = st.columns(col_ratio_tab1)
                         cols[0].write(i + 1)
                         b_cols = cols[1].columns([1, 1])
                         if b_cols[0].button(
@@ -2130,18 +1811,15 @@ def start_100b_dashboard():
 
                         cols[2].write(item["티커"])
                         cols[3].write(item["종목명"])
-
                         sec_name = sector_map.get(item["티커"], "미분류")
                         cols[4].write(str(sec_name)[:12])
-
                         cols[5].write(item["현재가"])
                         cols[6].write(item.get("1년 최고", "-"))
                         cols[7].write(item.get("1년 최저", "-"))
-                        cols[8].write(f"{float(item.get('PBR', 0)):.2f}")
-                        cols[9].write(f"{float(item.get('PER', 0)):.0f}")
-                        cols[10].write(str(item.get("RSI", 0)))
-                        cols[11].write(str(item.get("Stoch %K", 0)))
-                        cols[12].write(item.get("거래량 비율", "0%"))
+                        cols[8].write(item.get("고점대비", "0%"))
+                        cols[9].write(str(item.get("RSI", 0)))
+                        cols[10].write(str(item.get("Stoch %K", 0)))
+                        cols[11].write(item.get("거래량 비율", "0%"))
                         st.divider()
 
                 sel_tk = st.session_state["selected_ticker"]
@@ -2162,13 +1840,8 @@ def start_100b_dashboard():
                     if df.empty:
                         st.error("데이터 로드 실패")
                     else:
-                        tk_per, tk_pbr = (
-                            f_map.get(sel_tk, {}).get("PER", 0),
-                            f_map.get(sel_tk, {}).get("PBR", 0),
-                        )
-
                         ai_scores = calculate_persona_scores(
-                            sel_tk, df, tk_per, tk_pbr, c_m
+                            sel_tk, df, c_m
                         )
 
                         st.markdown("#### 🎯 AI 모델별 투자 매력도")
@@ -2522,8 +2195,6 @@ def start_100b_dashboard():
                                     sel_tk,
                                     n_map.get(sel_tk, "종목"),
                                     df,
-                                    f_map.get(sel_tk, {}).get("PER", 0),
-                                    f_map.get(sel_tk, {}).get("PBR", 0),
                                     c_m,
                                     tf,
                                     prof,
@@ -2556,7 +2227,6 @@ def start_100b_dashboard():
             "등록하신 종목들의 실시간 지표와 1/2차 분할 매수 타점을 관리할 수 있습니다."
         )
 
-        # 🔥 [요청 기능 구현] 전 세계 모든 종목 직접 수동 등록 섹션 (안내 문구 수정)
         with st.expander("➕ 리스트에 없는 새로운 종목 추가하기", expanded=False):
             st.markdown(
                 "야후 파이낸스에 상장된 **전 세계 모든 주식/ETF (500개 풀 외 전부)**를 무제한 추가할 수 있습니다.\n\n"
@@ -2576,7 +2246,6 @@ def start_100b_dashboard():
                         search_term = custom_input.strip()
                         search_term_upper = search_term.upper()
                         
-                        # 한국 전체 종목(2500+) + 미국 500 종목 맵핑
                         all_kr_map = get_all_korean_tickers_for_search()
                         name_map_us = get_market_database("미국")
                         rev_map_us = {v: k for k, v in name_map_us.items()}
@@ -2591,15 +2260,14 @@ def start_100b_dashboard():
                             final_ticker = rev_map_us[search_term]
                             final_name = search_term
                         else:
-                            # 사용자가 OKLO 처럼 티커를 직접 입력한 경우
                             final_ticker = search_term_upper
-                            final_name = search_term_upper  # 이름을 알 수 없으므로 티커로 지정
+                            final_name = search_term_upper  
 
                         with st.spinner(f"'{final_ticker}' 정보 검색 중..."):
                             try:
                                 check_df = yf.download(final_ticker, period="1d", progress=False)
                                 if not check_df.empty:
-                                    # 🔥 야후 파이낸스에서 실제 회사 이름(shortName) 긁어오기
+                                    # 🔥 야후 파이낸스에서 실제 회사 이름(shortName) 긁어오기 적용!
                                     try:
                                         fetched_name = yf.Ticker(final_ticker).info.get('shortName', final_name)
                                     except:
@@ -2734,7 +2402,7 @@ def start_100b_dashboard():
                 else:
                     tickers = df_watch["Ticker"].tolist()
                     with st.spinner("실시간 데이터 불러오는 중..."):
-                        tech_map, fund_map = fetch_watchlist_data(tickers)
+                        tech_map = fetch_watchlist_data(tickers)
                         sector_map_watch = fetch_sectors_for_watchlist_v8(tickers)
 
                     st.markdown("##### 🗂️ 포트폴리오 정렬 및 내보내기")
@@ -2747,10 +2415,9 @@ def start_100b_dashboard():
                                 "종목명",
                                 "현재가",
                                 "등록일 (최신순)",
+                                "고점대비(%)",
                                 "RSI",
                                 "ST",
-                                "PER",
-                                "PBR",
                             ],
                             label_visibility="collapsed",
                         )
@@ -2772,8 +2439,9 @@ def start_100b_dashboard():
                         price = tech_map.get(tk, {}).get("Price", 0)
                         rsi = tech_map.get(tk, {}).get("RSI", 0)
                         stoch = tech_map.get(tk, {}).get("ST", 0)
-                        pbr = fund_map.get(tk, {}).get("PBR", 0)
-                        per = fund_map.get(tk, {}).get("PER", 0)
+                        y_high = tech_map.get(tk, {}).get("1YearHigh", 0)
+                        
+                        drop_pct = (price / y_high * 100) if y_high > 0 else 0
 
                         diff1_pct = (
                             ((tg1 - price) / price) * 100
@@ -2791,8 +2459,7 @@ def start_100b_dashboard():
                                 "price": price,
                                 "rsi": rsi,
                                 "stoch": stoch,
-                                "pbr": pbr,
-                                "per": per,
+                                "drop_pct": drop_pct,
                                 "diff1_pct": diff1_pct,
                                 "sector": sector_map_watch.get(tk, "미분류"),
                             }
@@ -2807,14 +2474,12 @@ def start_100b_dashboard():
                         display_rows.sort(key=lambda x: x["price"], reverse=rev)
                     elif sort_by == "1차매수 근접도(%)":
                         display_rows.sort(key=lambda x: x["diff1_pct"], reverse=rev)
+                    elif sort_by == "고점대비(%)":
+                        display_rows.sort(key=lambda x: x["drop_pct"], reverse=rev)
                     elif sort_by == "RSI":
                         display_rows.sort(key=lambda x: x["rsi"], reverse=rev)
                     elif sort_by == "ST":
                         display_rows.sort(key=lambda x: x["stoch"], reverse=rev)
-                    elif sort_by == "PER":
-                        display_rows.sort(key=lambda x: x["per"], reverse=rev)
-                    elif sort_by == "PBR":
-                        display_rows.sort(key=lambda x: x["pbr"], reverse=rev)
 
                     export_df = pd.DataFrame(display_rows)[
                         [
@@ -2825,8 +2490,7 @@ def start_100b_dashboard():
                             "tg1",
                             "diff1_pct",
                             "tg2",
-                            "pbr",
-                            "per",
+                            "drop_pct",
                             "rsi",
                             "stoch",
                             "dt",
@@ -2840,8 +2504,7 @@ def start_100b_dashboard():
                         "1차매수가",
                         "1차매수_근접도(%)",
                         "2차매수가",
-                        "PBR",
-                        "PER",
+                        "고점대비(%)",
                         "RSI",
                         "STOCH",
                         "등록일",
@@ -2858,8 +2521,8 @@ def start_100b_dashboard():
                             use_container_width=True,
                         )
 
-                    # 🔥 오리지널 UI 완벽 복구
-                    col_ratio = [1.0, 0.8, 1.2, 1.0, 0.8, 0.8, 0.5, 0.5, 0.5, 0.5, 1.7]
+                    # 🔥 오리지널 UI (PER, PBR 제거 및 고점대비 추가 버전)
+                    col_ratio = [1.0, 0.8, 1.2, 1.0, 0.8, 0.8, 0.8, 0.5, 0.5, 1.7]
                     hc = st.columns(col_ratio)
                     hc[0].write("**종목명**")
                     hc[1].write("**등록일**")
@@ -2867,22 +2530,20 @@ def start_100b_dashboard():
                     hc[3].write("**현재가**")
                     hc[4].write("**1차매수(%)**")
                     hc[5].write("**2차매수(%)**")
-                    hc[6].write("**PBR**")
-                    hc[7].write("**PER**")
-                    hc[8].write("**RSI**")
-                    hc[9].write("**ST**")
-                    hc[10].write("**관리(수정/삭제)**")
+                    hc[6].write("**고점대비**")
+                    hc[7].write("**RSI**")
+                    hc[8].write("**ST**")
+                    hc[9].write("**관리(수정/삭제)**")
                     st.divider()
 
                     with st.container(height=600):
                         for item in display_rows:
                             tk, nm, dt = item["tk"], item["nm"], item["dt"]
                             tg1, tg2, price = item["tg1"], item["tg2"], item["price"]
-                            pbr, per, rsi, stoch = (
-                                item["pbr"],
-                                item["per"],
+                            rsi, stoch, drop_pct = (
                                 item["rsi"],
                                 item["stoch"],
+                                item["drop_pct"],
                             )
                             diff1_pct = item["diff1_pct"]
 
@@ -2912,7 +2573,6 @@ def start_100b_dashboard():
                                 else:
                                     cc[3].write(price_str)
                             else:
-                                # 🔥 주가가 0일 때 (로딩 실패 등) 빈칸으로 남지 않도록 표시
                                 cc[3].write("데이터 없음")
 
                             if tg1 > 0:
@@ -2933,7 +2593,6 @@ def start_100b_dashboard():
 
                             tg2_fmt = f"{tg2:,.0f}" if tg2 > 1000 else f"{tg2:,.2f}"
                             
-                            # 🔥 ZeroDivisionError 방어막 추가 (and price > 0)
                             if tg2 > 0 and tg1 > 0 and price < tg1 and price > 0:
                                 diff2_pct = ((tg2 - price) / price) * 100
                                 color2, sign2 = (
@@ -2948,12 +2607,11 @@ def start_100b_dashboard():
                             else:
                                 cc[5].write(tg2_fmt)
 
-                            cc[6].write(f"{pbr}")
-                            cc[7].write(f"{per}")
-                            cc[8].write(f"{rsi}")
-                            cc[9].write(f"{stoch}")
+                            cc[6].write(f"{drop_pct:.1f}%")
+                            cc[7].write(f"{rsi}")
+                            cc[8].write(f"{stoch}")
 
-                            mc1, mc2, mc3, mc4 = cc[10].columns([1, 1, 0.8, 0.8])
+                            mc1, mc2, mc3, mc4 = cc[9].columns([1, 1, 0.8, 0.8])
                             new_tg1 = mc1.number_input(
                                 "1차",
                                 value=tg1,
