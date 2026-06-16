@@ -1,3 +1,4 @@
+setuptools
 streamlit
 yfinance
 plotly
@@ -6,4 +7,3 @@ pandas
 finance-datareader
 pykrx
 requests
-setuptools
