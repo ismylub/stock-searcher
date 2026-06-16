@@ -2261,16 +2261,23 @@ def start_100b_dashboard():
                             final_name = search_term
                         else:
                             final_ticker = search_term_upper
-                            final_name = search_term_upper  
+                            # 🔥 1차 방어: 우리 내부 DB에서 먼저 영문 풀네임 찾기!
+                            if final_ticker in name_map_us:
+                                final_name = name_map_us[final_ticker]
+                            else:
+                                final_name = search_term_upper  
 
                         with st.spinner(f"'{final_ticker}' 정보 검색 중..."):
                             try:
                                 check_df = yf.download(final_ticker, period="1d", progress=False)
                                 if not check_df.empty:
-                                    # 🔥 야후 파이낸스에서 실제 회사 이름(shortName) 긁어오기 적용!
-                                    try:
-                                        fetched_name = yf.Ticker(final_ticker).info.get('shortName', final_name)
-                                    except:
+                                    # 🔥 2차 방어: 내부 DB에도 없는 종목이면 야후에서 이름 긁어오기
+                                    if final_name == final_ticker:
+                                        try:
+                                            fetched_name = yf.Ticker(final_ticker).info.get('shortName', final_name)
+                                        except:
+                                            fetched_name = final_name
+                                    else:
                                         fetched_name = final_name
                                         
                                     save_to_watchlist_local(final_ticker, fetched_name, 0.0, 0.0)
