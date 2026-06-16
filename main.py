@@ -214,11 +214,11 @@ def fetch_watchlist_data(tickers):
 
     for t in tickers:
         try:
-            # 🚀 티커 1개일 때와 여러 개일 때를 명확히 구분
-            if len(tickers) == 1:
-                df = group_data.copy()
-            else:
+            # 🚀 yfinance 최신 버전에 맞춘 완벽한 데이터 추출
+            if isinstance(group_data.columns, pd.MultiIndex):
                 df = group_data[t].copy()
+            else:
+                df = group_data.copy()
                 
             df = df.dropna(how="all")
             df = process_technical_indicators(df)
