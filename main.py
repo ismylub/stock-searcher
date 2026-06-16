@@ -326,52 +326,26 @@ def get_market_database(market_type):
     ticker_map = {}
     try:
         if "한국" in market_type:
-            api_key = os.environ.get("KRX_API_KEY", "")
-            headers = {
-                "AUTH_KEY": api_key.strip(),
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            }
-
-            base_date = None
-            for i in range(7):
-                d = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime("%Y%m%d")
-                test = requests.post(
-                    "https://data-dbg.krx.co.kr/svc/apis/sto/stk_isu_base_info",
-                    headers=headers, json={"basDd": d}, timeout=10
-                )
-                if test.json().get("OutBlock_1"):
-                    base_date = d
-                    break
-
-            if not base_date:
-                raise Exception("최근 영업일 데이터를 찾을 수 없습니다.")
-
-            # KOSPI
-            kospi_res = requests.post(
-                "https://data-dbg.krx.co.kr/svc/apis/sto/stk_isu_base_info",
-                headers=headers, json={"basDd": base_date}, timeout=10
-            )
-            for item in kospi_res.json().get("OutBlock_1", []):
-                code = item.get("ISU_SRT_CD", "")
-                name = item.get("ISU_ABBRV", "")
-                if code and name and item.get("KIND_STKCERT_TP_NM") == "보통주":
-                    ticker_map[f"{code}.KS"] = name
-
-            # KOSDAQ
-            kosdaq_res = requests.post(
-                "https://data-dbg.krx.co.kr/svc/apis/sto/ksq_isu_base_info",
-                headers=headers, json={"basDd": base_date}, timeout=10
-            )
-            for item in kosdaq_res.json().get("OutBlock_1", []):
-                code = item.get("ISU_SRT_CD", "")
-                name = item.get("ISU_ABBRV", "")
-                if code and name and item.get("KIND_STKCERT_TP_NM") == "보통주":
-                    ticker_map[f"{code}.KQ"] = name
-
-            ticker_map = dict(list(ticker_map.items())[:500])
+            # 🔥 무식한 번호순 컷팅 폐기! 시가총액(Marcap) 최상위 500개 우량주만 정밀 타겟팅
+            krx = fdr.StockListing("KRX")
+            # 스팩/우선주 제외, KOSPI와 KOSDAQ 보통주만 살림
+            krx = krx[krx['Market'].isin(['KOSPI', 'KOSDAQ'])]
+            
+            # 시가총액(Marcap) 기준으로 내림차순 정렬
+            if 'Marcap' in krx.columns:
+                krx = krx.sort_values(by='Marcap', ascending=False)
+            
+            # 든든한 상위 500개 기업 컷팅
+            krx_top500 = krx.head(500)
+            
+            for _, r in krx_top500.iterrows():
+                code = str(r['Code']).zfill(6)
+                market = str(r['Market'])
+                suffix = ".KS" if "KOSPI" in market else ".KQ"
+                ticker_map[f"{code}{suffix}"] = str(r['Name'])
 
         else:
+            # 미국 시장 로직 (기존과 동일)
             sp500 = fdr.StockListing("S&P500")
             if "Name" in sp500.columns:
                 sp500 = sp500[
