@@ -1501,7 +1501,7 @@ def start_100b_dashboard():
                         continue
 
                     year_high, year_low = 0, 0
-                    drop_ratio = 0
+                    band_position = 0  # 밴드 내 위치
                     try:
                         last_year_df = df.tail(252 if timeframe == "일봉" else 52)
                         year_high = last_year_df["High_line"].max()
@@ -1512,14 +1512,15 @@ def start_100b_dashboard():
                     latest, prev = df.iloc[-1], df.iloc[-2]
                     cp = float(latest["Close_line"])
 
-                    if year_high > 0:
-                        drop_ratio = (cp / year_high) * 100
+                    # 🔥 유저 맞춤형 계산식: (현재가 - 저점) / (고점 - 저점) * 100
+                    if year_high > 0 and (year_high - year_low) > 0:
+                        band_position = ((cp - year_low) / (year_high - year_low)) * 100
 
-                    # 🔥 신규 낙폭 필터 로직
+                    # 🔥 신규 고저 밴드 필터 로직
                     if st.session_state.get("k_drop_cond", False):
                         t_ratio = st.session_state.get("k_drop_target", 30)
                         m_ratio = st.session_state.get("k_drop_margin", 5)
-                        if year_high == 0 or not (t_ratio - m_ratio <= drop_ratio <= t_ratio + m_ratio):
+                        if year_high == 0 or not (t_ratio - m_ratio <= band_position <= t_ratio + m_ratio):
                             continue
 
                     if not (rsi_min <= latest["RSI"] <= rsi_max):
