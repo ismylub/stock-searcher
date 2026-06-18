@@ -114,10 +114,16 @@ def delete_from_watchlist(ticker):
 def get_all_korean_tickers_for_search():
     full_map = {}
     try:
-        for market, suffix in [("KOSPI", ".KS"), ("KOSDAQ", ".KQ")]:
-            df = fdr.StockListing(market)
-            for _, r in df.iterrows():
-                full_map[str(r["Name"])] = str(r["Code"]).zfill(6) + suffix
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        # 코스피 전체 긁어오기 (네이버 모바일 API)
+        url_kpi = "https://m.stock.naver.com/api/stocks/marketValue/KOSPI?page=1&pageSize=2000"
+        for item in requests.get(url_kpi, headers=headers, timeout=5).json().get('stocks', []):
+            full_map[str(item['stockName'])] = f"{item['itemCode']}.KS"
+            
+        # 코스닥 전체 긁어오기
+        url_kdq = "https://m.stock.naver.com/api/stocks/marketValue/KOSDAQ?page=1&pageSize=2000"
+        for item in requests.get(url_kdq, headers=headers, timeout=5).json().get('stocks', []):
+            full_map[str(item['stockName'])] = f"{item['itemCode']}.KQ"
     except:
         pass
     return full_map
@@ -215,49 +221,37 @@ def get_market_database(market_type):
     ticker_map = {}
     try:
         if "한국" in market_type:
-            # KRX 차단 완전 우회: 네이버에서 가져오는 KOSPI, KOSDAQ 데이터 사용
-            kpi = fdr.StockListing('KOSPI')
-            kpi['Suffix'] = '.KS'
-            kdq = fdr.StockListing('KOSDAQ')
-            kdq['Suffix'] = '.KQ'
+            # 🚀 KRX 원천 차단! 네이버 모바일 공식 JSON API로 시가총액 상위 직행
+            headers = {'User-Agent': 'Mozilla/5.0'}
             
-            krx = pd.concat([kpi, kdq])
-            krx = krx.dropna(subset=['Code', 'Name'])
+            # 코스피 시총 상위 250개
+            url_kpi = "https://m.stock.naver.com/api/stocks/marketValue/KOSPI?page=1&pageSize=250"
+            res_kpi = requests.get(url_kpi, headers=headers, timeout=5)
+            for item in res_kpi.json().get('stocks', []):
+                name = str(item.get('stockName', ''))
+                if not any(x in name for x in ['스팩', '우', '우B']):
+                    ticker_map[f"{item.get('itemCode')}.KS"] = name
             
-            # 스팩, 우선주 등 제외 (깔끔한 검색을 위해)
-            krx = krx[~krx['Name'].str.contains('스팩|제[0-9]+호', regex=True)]
-            krx = krx[~krx['Name'].str.endswith('우')]
-            krx = krx[~krx['Name'].str.endswith('우B')]
-            
-            # 시가총액 기준으로 강력하게 정렬!
-            if 'Marcap' in krx.columns:
-                krx['Marcap'] = pd.to_numeric(krx['Marcap'], errors='coerce').fillna(0)
-                krx = krx.sort_values(by='Marcap', ascending=False)
-            
-            krx_top500 = krx.head(500)
-            
-            for _, r in krx_top500.iterrows():
-                code = str(r['Code']).zfill(6)
-                ticker_map[f"{code}{r['Suffix']}"] = str(r['Name'])
+            # 코스닥 시총 상위 250개
+            url_kdq = "https://m.stock.naver.com/api/stocks/marketValue/KOSDAQ?page=1&pageSize=250"
+            res_kdq = requests.get(url_kdq, headers=headers, timeout=5)
+            for item in res_kdq.json().get('stocks', []):
+                name = str(item.get('stockName', ''))
+                if not any(x in name for x in ['스팩', '우', '우B']):
+                    ticker_map[f"{item.get('itemCode')}.KQ"] = name
 
         else:
+            # 미국 시장 로직 (기존 유지)
             sp500 = fdr.StockListing("S&P500")
             if "Name" in sp500.columns:
-                sp500 = sp500[
-                    ~sp500["Name"].str.contains(
-                        r"(?i)acquisition|spac|warrant|unit|trust", regex=True
-                    )
-                ]
+                sp500 = sp500[~sp500["Name"].str.contains(r"(?i)acquisition|spac|warrant|unit|trust", regex=True)]
             for _, r in sp500.iterrows():
                 if len(ticker_map) < 500:
                     ticker_map[str(r["Symbol"]).replace(".", "-")] = str(r["Name"])
+            
             nasdaq = fdr.StockListing("NASDAQ")
             if "Name" in nasdaq.columns:
-                nasdaq = nasdaq[
-                    ~nasdaq["Name"].str.contains(
-                        r"(?i)acquisition|spac|warrant|unit|trust", regex=True
-                    )
-                ]
+                nasdaq = nasdaq[~nasdaq["Name"].str.contains(r"(?i)acquisition|spac|warrant|unit|trust", regex=True)]
             for _, r in nasdaq.head(300).iterrows():
                 tk = str(r["Symbol"]).replace(".", "-")
                 if tk not in ticker_map and len(ticker_map) < 500:
