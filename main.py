@@ -15,7 +15,7 @@ from io import StringIO
 import xml.etree.ElementTree as ET
 import difflib
 import json
-from krx_data import get_market_database_krx, get_krx_price_table
+from krx_data import get_market_database_krx, get_krx_price_table, get_krx_full_search_map
 from streamlit_gsheets import GSheetsConnection
 
 # =======================================================================
@@ -1704,9 +1704,11 @@ def start_100b_dashboard():
                         search_term = custom_input.strip()
                         search_term_upper = search_term.upper()
                         
-                        name_map_kr = get_market_database("한국")
+                        # 🔥 수정된 부분: KRX 전체 2500개 딕셔너리 호출 (0.001초 소요)
+                        rev_map_kr = get_krx_full_search_map() # {"삼성전자": "005930.KS"}
+                        name_map_kr = {v: k for k, v in rev_map_kr.items()} # {"005930.KS": "삼성전자"}
+                        
                         name_map_us = get_market_database("미국")
-                        rev_map_kr = {v: k for k, v in name_map_kr.items()}
                         rev_map_us = {v: k for k, v in name_map_us.items()}
                         
                         final_ticker = ""
@@ -1982,14 +1984,14 @@ def start_100b_dashboard():
                         )
 
                     # 🔥 탭 2(관심종목) 열 너비 조절용 리스트
-                    col_ratio_tab2 = [1.0, 0.8, 1.2, 1.0, 0.8, 0.8, 0.8, 0.5, 0.5, 1.7]
+                    col_ratio_tab2 = [2.0, 0.8, 1, 1.0, 0.8, 0.8, 0.6, 0.5, 0.5, 1.7]
                     hc = st.columns(col_ratio_tab2)
                     hc[0].write("**종목명**")
                     hc[1].write("**등록일**")
                     hc[2].write("**섹터**")
                     hc[3].write("**현재가**")
-                    hc[4].write("**1차매수(%)**")
-                    hc[5].write("**2차매수(%)**")
+                    hc[4].write("**1차매수**")
+                    hc[5].write("**2차매수**")
                     hc[6].write("**고저밴드**")
                     hc[7].write("**RSI**")
                     hc[8].write("**ST**")
