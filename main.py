@@ -2141,19 +2141,14 @@ def start_100b_dashboard():
                     st.rerun()
 
             df_watch = get_watchlist_df()
+            
             if df_watch.empty:
-                st.info(
-                    "등록된 관심종목이 없습니다. 검색창으로 돌아가 종목을 등록해 주세요."
-                )
+                st.info("등록된 관심종목이 없습니다. 검색창으로 돌아가 종목을 등록해 주세요.")
             else:
-                    st.info(
-                        "등록된 관심종목이 없습니다. 검색창으로 돌아가 종목을 등록해 주세요."
-                    )
-                else:
-                    tickers = df_watch["Ticker"].tolist()
-                    with st.spinner("실시간 데이터 불러오는 중..."):
-                        tech_map = fetch_watchlist_data(tickers)
-                        sector_map_watch = fetch_sectors_for_watchlist_v8(tickers)
+                tickers = df_watch["Ticker"].tolist()
+                with st.spinner("실시간 데이터 불러오는 중..."):
+                    tech_map = fetch_watchlist_data(tickers)
+                    sector_map_watch = fetch_sectors_for_watchlist_v8(tickers)
 
                     st.markdown("##### 🗂️ 포트폴리오 정렬 및 내보내기")
                     sc1, sc2 = st.columns([2, 8])
