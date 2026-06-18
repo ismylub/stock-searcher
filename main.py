@@ -206,7 +206,8 @@ def get_krx_fundamentals():
                 
                 fund_dict = {}
                 for ticker, row in fund_df.iterrows():
-                    fund_dict[str(ticker)] = {
+                    # Zfill로 6자리 텍스트 코드로 완벽 매칭 준비
+                    fund_dict[str(ticker).zfill(6)] = {
                         "PER": float(row["PER"]),
                         "PBR": float(row["PBR"])
                     }
@@ -228,7 +229,7 @@ def get_krx_foreign_rate():
                 
                 rate_dict = {}
                 for ticker, row in fund_df.iterrows():
-                    rate_dict[str(ticker)] = float(row.get("지분율", 0.0))
+                    rate_dict[str(ticker).zfill(6)] = float(row.get("지분율", 0.0))
                 return rate_dict
         except:
             continue
@@ -668,6 +669,20 @@ def start_100b_dashboard():
             [data-testid="stMarkdownContainer"] p { margin-bottom: 0px !important; }
             .stCheckbox { margin-top: 5px !important; }
             button[data-baseweb="tab"] { font-size: 16px !important; font-weight: bold !important; }
+            
+            /* 🔥 검색 결과 테이블 텍스트를 강제로 한 줄로 유지하고 크기를 줄임 */
+            div[data-testid="column"] p {
+                font-size: 12.5px !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                margin-bottom: 0px !important;
+            }
+            /* 테이블 내 분석/등록 버튼 여백 축소 */
+            div[data-testid="column"] button {
+                font-size: 11px !important;
+                padding: 0px 4px !important;
+            }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1270,15 +1285,9 @@ def start_100b_dashboard():
                         {
                             "티커": ticker,
                             "종목명": name_map.get(ticker, ticker),
-                            "현재가": f"{cp:,.0f}원"
-                            if "한국" in market
-                            else f"${cp:,.2f}",
-                            "1년 최고": f"{year_high:,.0f}"
-                            if pd.notna(year_high) and year_high > 0
-                            else "0",
-                            "1년 최저": f"{year_low:,.0f}"
-                            if pd.notna(year_low) and year_low > 0
-                            else "0",
+                            "현재가": f"{cp:,.0f}" if "한국" in market else f"{cp:,.2f}",
+                            "1년고": f"{year_high:,.0f}" if pd.notna(year_high) and year_high > 0 else "0",
+                            "1년저": f"{year_low:,.0f}" if pd.notna(year_low) and year_low > 0 else "0",
                             "고저밴드": f"{band_position:.1f}%",
                             "RSI": round(latest["RSI"], 1),
                             "Stoch %K": round(latest["Stoch_K"], 1),
@@ -1350,8 +1359,8 @@ def start_100b_dashboard():
                             "종목명": item["종목명"],
                             "섹터": sector_map.get(item["티커"], "미분류"),
                             "현재가": item["현재가"],
-                            "1년고": item.get("1년 최고", "-"),
-                            "1년저": item.get("1년 최저", "-"),
+                            "1년고": item.get("1년고", "-"),
+                            "1년저": item.get("1년저", "-"),
                             "고저밴드(%)": item.get("고저밴드", "0%"),
                             "RSI": float(item.get("RSI", 0)),
                             "ST": float(item.get("Stoch %K", 0)),
@@ -1374,7 +1383,8 @@ def start_100b_dashboard():
                         use_container_width=True,
                     )
 
-                col_ratio_tab1 = [0.8, 1.4, 1.2, 2.0, 1.6, 1.3, 1.0, 1.0, 1.0, 0.8, 0.8, 1.1, 0.8, 0.8, 1.0]
+                # 🔥 탭 1 표 간격 및 텍스트 짤림 방지 조율
+                col_ratio_tab1 = [0.6, 1.4, 1.1, 1.8, 1.4, 1.2, 1.0, 1.0, 1.0, 0.8, 0.8, 1.0, 0.7, 0.7, 0.9]
                 h_cols = st.columns(col_ratio_tab1)
                 headers = [
                     "순번", "선택", "티커", "종목명", "섹터", "현재가", 
@@ -1431,17 +1441,18 @@ def start_100b_dashboard():
                         cols[2].write(item["티커"])
                         cols[3].write(item["종목명"])
                         sec_name = sector_map.get(item["티커"], "미분류")
-                        cols[4].write(str(sec_name)[:12])
+                        cols[4].write(str(sec_name)[:8])
                         cols[5].write(item["현재가"])
-                        cols[6].write(item.get("1년 최고", "-"))
-                        cols[7].write(item.get("1년 최저", "-"))
+                        cols[6].write(item.get("1년고", "-"))
+                        cols[7].write(item.get("1년저", "-"))
                         cols[8].write(item.get("고저밴드", "0%"))
                         cols[9].write(str(item.get("RSI", 0)))
                         cols[10].write(str(item.get("Stoch %K", 0)))
                         cols[11].write(item.get("거래량 비율", "0%"))
-                        cols[12].write(f"{item.get('PER', 0):.2f}" if item.get("PER", 0) > 0 else "-")
-                        cols[13].write(f"{item.get('PBR', 0):.2f}" if item.get("PBR", 0) > 0 else "-")
-                        cols[14].write(f"{item.get('외인지분', 0):.2f}%" if "한국" in c_m and item.get("외인지분", 0) > 0 else "-")
+                        # 🔥 하이픈(-)이 마크다운 점(•)으로 변환되는 현상을 "N/A" 로 수정하여 완벽 해결
+                        cols[12].write(f"{item.get('PER', 0):.2f}" if item.get("PER", 0) > 0 else "N/A")
+                        cols[13].write(f"{item.get('PBR', 0):.2f}" if item.get("PBR", 0) > 0 else "N/A")
+                        cols[14].write(f"{item.get('외인지분', 0):.2f}%" if "한국" in c_m and item.get("외인지분", 0) > 0 else "N/A")
                         st.divider()
 
                 sel_tk = st.session_state["selected_ticker"]
@@ -2129,7 +2140,7 @@ def start_100b_dashboard():
                             cc[2].write(str(item.get("sector", "미분류"))[:12])
 
                             price_str = (
-                                f"{price:,.0f}원" if "KS" in tk or "KQ" in tk else f"${price:,.2f}"
+                                f"{price:,.0f}" if "KS" in tk or "KQ" in tk else f"{price:,.2f}"
                             )
 
                             if price > 0:
