@@ -1984,7 +1984,7 @@ def start_100b_dashboard():
                         )
 
                     # 🔥 탭 2(관심종목) 열 너비 조절용 리스트
-                    col_ratio_tab2 = [2.0, 0.8, 1, 1.0, 0.8, 0.8, 0.6, 0.5, 0.5, 1.7]
+                    col_ratio_tab2 = [2.0, 1, 1, 1.0, 0.8, 0.8, 0.6, 0.5, 0.5, 1.7]
                     hc = st.columns(col_ratio_tab2)
                     hc[0].write("**종목명**")
                     hc[1].write("**등록일**")
