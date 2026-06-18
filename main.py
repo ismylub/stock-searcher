@@ -114,22 +114,18 @@ def delete_from_watchlist(ticker):
 def get_all_korean_tickers_for_search():
     full_map = {}
     try:
-        # 🛡️ 네이버를 완벽하게 속이는 크롬 브라우저 위장 신분증
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Referer': 'https://m.stock.naver.com/'
-        }
-        url_kpi = "https://m.stock.naver.com/api/stocks/marketValue/KOSPI?page=1&pageSize=2000"
-        res = requests.get(url_kpi, headers=headers, timeout=5)
-        if res.status_code == 200:
-            for item in res.json().get('stocks', []):
-                full_map[str(item['stockName'])] = f"{item['itemCode']}.KS"
-                
-        url_kdq = "https://m.stock.naver.com/api/stocks/marketValue/KOSDAQ?page=1&pageSize=2000"
-        res = requests.get(url_kdq, headers=headers, timeout=5)
-        if res.status_code == 200:
-            for item in res.json().get('stocks', []):
-                full_map[str(item['stockName'])] = f"{item['itemCode']}.KQ"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        for sosok in [0, 1]:  # 0: 코스피, 1: 코스닥
+            suffix = ".KS" if sosok == 0 else ".KQ"
+            # 검색용이므로 넉넉하게 40페이지(약 2000개) 스캔
+            for page in range(1, 41):
+                url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={page}"
+                res = requests.get(url, headers=headers, timeout=5)
+                # 정규식(Regex)으로 HTML 글자에서 티커와 종목명만 빛의 속도로 추출!
+                matches = re.findall(r'href="/item/main\.naver\?code=(\d+)".*?class="tltle">(.*?)</a>', res.text)
+                if not matches: break
+                for code, name in matches:
+                    full_map[str(name)] = f"{code}{suffix}"
     except:
         pass
     return full_map
@@ -227,31 +223,22 @@ def get_market_database(market_type):
     ticker_map = {}
     try:
         if "한국" in market_type:
-            # 🛡️ 네이버 API 우회 (위장 헤더 장착)
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'application/json, text/plain, */*',
-                'Referer': 'https://m.stock.naver.com/'
-            }
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
             
-            # 코스피 250개
-            url_kpi = "https://m.stock.naver.com/api/stocks/marketValue/KOSPI?page=1&pageSize=250"
-            res_kpi = requests.get(url_kpi, headers=headers, timeout=5)
-            if res_kpi.status_code == 200:
-                for item in res_kpi.json().get('stocks', []):
-                    name = str(item.get('stockName', ''))
-                    if not any(x in name for x in ['스팩', '우', '우B']):
-                        ticker_map[f"{item.get('itemCode')}.KS"] = name
-            
-            # 코스닥 250개
-            url_kdq = "https://m.stock.naver.com/api/stocks/marketValue/KOSDAQ?page=1&pageSize=250"
-            res_kdq = requests.get(url_kdq, headers=headers, timeout=5)
-            if res_kdq.status_code == 200:
-                for item in res_kdq.json().get('stocks', []):
-                    name = str(item.get('stockName', ''))
-                    if not any(x in name for x in ['스팩', '우', '우B']):
-                        ticker_map[f"{item.get('itemCode')}.KQ"] = name
-
+            # 코스피(0), 코스닥(1) 시가총액 상위 5페이지(250개씩) 긁기
+            for sosok in [0, 1]:
+                suffix = ".KS" if sosok == 0 else ".KQ"
+                for page in range(1, 6):
+                    url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={page}"
+                    res = requests.get(url, headers=headers, timeout=5)
+                    
+                    # 🔥 에러 발생 시 숨기지 않고 즉시 뿜어내도록 설정!
+                    res.raise_for_status()
+                    
+                    matches = re.findall(r'href="/item/main\.naver\?code=(\d+)".*?class="tltle">(.*?)</a>', res.text)
+                    for code, name in matches:
+                        if not any(x in name for x in ['스팩', '우', '우B']):
+                            ticker_map[f"{code}{suffix}"] = name
         else:
             sp500 = fdr.StockListing("S&P500")
             if "Name" in sp500.columns:
@@ -268,11 +255,11 @@ def get_market_database(market_type):
                 if tk not in ticker_map and len(ticker_map) < 500:
                     ticker_map[tk] = str(r["Name"])
 
-    except Exception:
-        # 에러가 나도 화면에 빨간 경고창을 띄우지 않고 조용히 넘기도록 수정
-        pass
+    except Exception as e:
+        # 🔥 선생님 말씀대로, 에러가 나면 무조건 빨간 창으로 이유를 알려줍니다!
+        st.error(f"🚨 [종목 수집 실패] 원인 파악용 알람: {e}")
 
-    # 🔥 최후의 보루: 만약 네이버마저 튕겨내면, 앱이 죽지 않도록 핵심 30개 우량주라도 무조건 띄웁니다.
+    # 만약 진짜 다 실패하면 앱이 멈추지 않게 21개만 띄움
     if not ticker_map and "한국" in market_type:
         ticker_map = {
             "005930.KS": "삼성전자", "000660.KS": "SK하이닉스", "373220.KS": "LG에너지솔루션", 
