@@ -16,6 +16,7 @@ import xml.etree.ElementTree as ET
 import difflib
 import json
 from krx_data import get_market_database_krx, get_krx_price_table
+from streamlit_gsheets import GSheetsConnection
 
 # =======================================================================
 # 🛡️ IP 차단 방지 글로벌 설정
@@ -61,52 +62,54 @@ def delete_filter_preset(name):
             json.dump(filters, f, ensure_ascii=False, indent=4)
 
 # =======================================================================
-# 💡 로컬 전용 관심종목 DB 관리 함수
+# 💡 구글 시트 전용 관심종목 DB 관리 함수 (기존 로컬 CSV 대체)
 # =======================================================================
+def get_watchlist_df():
+    """구글 시트에서 데이터를 읽어오는 공통 함수"""
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    try:
+        # ttl=0 이면 캐시를 무시하고 항상 최신 데이터를 가져옵니다.
+        df = conn.read(worksheet="관심종목", ttl=0)
+        # 빈 시트일 경우 기본 뼈대 반환
+        if df.empty or "Ticker" not in df.columns:
+            return pd.DataFrame(columns=["Ticker", "Name", "Target1", "Target2", "Date"])
+        return df
+    except Exception:
+        # 시트가 없거나 오류 시 기본 뼈대 반환
+        return pd.DataFrame(columns=["Ticker", "Name", "Target1", "Target2", "Date"])
+
+def save_watchlist_df(df):
+    """변경된 데이터를 구글 시트에 덮어쓰는 공통 함수"""
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    conn.update(worksheet="관심종목", data=df)
+
 def ensure_csv_format():
-    file_path = "watchlist.csv"
-    if not os.path.exists(file_path):
-        pd.DataFrame(columns=["Ticker", "Name", "Target1", "Target2", "Date"]).to_csv(
-            file_path, index=False
-        )
-    else:
-        df = pd.read_csv(file_path)
-        if "Target" in df.columns:
-            df["Target1"] = df["Target"]
-            df["Target2"] = 0.0
-            df = df.drop(columns=["Target"])
-            df.to_csv(file_path, index=False)
+    # 이제 로컬 파일이 필요 없으므로 빈 함수로 둡니다 (에러 방지용)
+    pass
 
 def save_to_watchlist_local(ticker, name, target1, target2):
-    ensure_csv_format()
-    df_new = pd.DataFrame(
-        {
-            "Ticker": [ticker],
-            "Name": [name],
-            "Target1": [target1],
-            "Target2": [target2],
-            "Date": [datetime.datetime.now().strftime("%Y-%m-%d")],
-        }
-    )
-    existing_df = pd.read_csv("watchlist.csv")
-    df_final = pd.concat([existing_df[existing_df["Ticker"] != ticker], df_new])
-    df_final.to_csv("watchlist.csv", index=False)
-    st.success(f"✅ [{name}] 관심종목 저장 완료!")
+    df = get_watchlist_df()
+    df_new = pd.DataFrame({
+        "Ticker": [ticker], "Name": [name], "Target1": [target1],
+        "Target2": [target2], "Date": [datetime.datetime.now().strftime("%Y-%m-%d")]
+    })
+    # 기존에 같은 티커가 있으면 삭제하고 새로 추가 (중복 방지)
+    df_final = pd.concat([df[df["Ticker"] != ticker], df_new])
+    save_watchlist_df(df_final)
+    st.success(f"✅ [{name}] 관심종목 구글 시트 저장 완료!")
 
 def update_target_price(ticker, new_tg1, new_tg2):
-    file_path = "watchlist.csv"
-    if os.path.exists(file_path):
-        df = pd.read_csv(file_path)
+    df = get_watchlist_df()
+    if not df.empty and ticker in df["Ticker"].values:
         df.loc[df["Ticker"] == ticker, "Target1"] = new_tg1
         df.loc[df["Ticker"] == ticker, "Target2"] = new_tg2
-        df.to_csv(file_path, index=False)
+        save_watchlist_df(df)
 
 def delete_from_watchlist(ticker):
-    file_path = "watchlist.csv"
-    if os.path.exists(file_path):
-        df = pd.read_csv(file_path)
-        df = df[df["Ticker"] != ticker]
-        df.to_csv(file_path, index=False)
+    df = get_watchlist_df()
+    if not df.empty:
+        df_final = df[df["Ticker"] != ticker]
+        save_watchlist_df(df_final)
 
 # =======================================================================
 # 🌐 전체 시장 종목 검색용 확장 사전 (KRX 차단 우회: 네이버 수집)
@@ -875,13 +878,7 @@ def start_100b_dashboard():
     if "selected_ticker" not in st.session_state:
         st.session_state["selected_ticker"] = "NONE"
 
-    ensure_csv_format()
-    registered_tickers = []
-    if os.path.exists("watchlist.csv"):
-        try:
-            registered_tickers = pd.read_csv("watchlist.csv")["Ticker"].tolist()
-        except:
-            pass
+    registered_tickers = get_watchlist_df()["Ticker"].tolist()
 
     st.markdown(
         """
@@ -2070,11 +2067,8 @@ def start_100b_dashboard():
 
             with st.spinner("네이버, 구글 뉴스 데이터망 최신화 중..."):
                 all_news = []
-                df_watch = (
-                    pd.read_csv("watchlist.csv")
-                    if os.path.exists("watchlist.csv")
-                    else pd.DataFrame()
-                )
+                df_watch = get_watchlist_df()
+                
                 queries = [
                     ("거시경제 OR 금리인상 OR 통화정책", "🌐 거시경제/정책"),
                     ("달러 환율 OR 환율 전망", "💵 환율"),
@@ -2146,13 +2140,12 @@ def start_100b_dashboard():
                     fetch_watchlist_data.clear() 
                     st.rerun()
 
-            if not os.path.exists("watchlist.csv"):
+            df_watch = get_watchlist_df()
+            if df_watch.empty:
                 st.info(
                     "등록된 관심종목이 없습니다. 검색창으로 돌아가 종목을 등록해 주세요."
                 )
             else:
-                df_watch = pd.read_csv("watchlist.csv")
-                if df_watch.empty:
                     st.info(
                         "등록된 관심종목이 없습니다. 검색창으로 돌아가 종목을 등록해 주세요."
                     )
