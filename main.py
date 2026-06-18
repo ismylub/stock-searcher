@@ -17,7 +17,7 @@ import difflib
 import json
 from krx_data import get_market_database_krx, get_krx_price_table, get_krx_full_search_map
 from streamlit_gsheets import GSheetsConnection
-from pykrx import stock  # 🔥 KRX 펀더멘털 데이터 로드를 위한 pykrx 추가
+from pykrx import stock
 
 # =======================================================================
 # 🛡️ IP 차단 방지 글로벌 설정
@@ -66,21 +66,16 @@ def delete_filter_preset(name):
 # 💡 구글 시트 전용 관심종목 DB 관리 함수
 # =======================================================================
 def get_watchlist_df():
-    """구글 시트에서 데이터를 읽어오는 공통 함수"""
     conn = st.connection("gsheets", type=GSheetsConnection)
     try:
-        # ttl=0 이면 캐시를 무시하고 항상 최신 데이터를 가져옵니다.
         df = conn.read(worksheet="관심종목", ttl=0)
-        # 빈 시트일 경우 기본 뼈대 반환
         if df.empty or "Ticker" not in df.columns:
             return pd.DataFrame(columns=["Ticker", "Name", "Target1", "Target2", "Date"])
         return df
     except Exception:
-        # 시트가 없거나 오류 시 기본 뼈대 반환
         return pd.DataFrame(columns=["Ticker", "Name", "Target1", "Target2", "Date"])
 
 def save_watchlist_df(df):
-    """변경된 데이터를 구글 시트에 덮어쓰는 공통 함수"""
     conn = st.connection("gsheets", type=GSheetsConnection)
     conn.update(worksheet="관심종목", data=df)
 
@@ -93,7 +88,6 @@ def save_to_watchlist_local(ticker, name, target1, target2):
         "Ticker": [ticker], "Name": [name], "Target1": [target1],
         "Target2": [target2], "Date": [datetime.datetime.now().strftime("%Y-%m-%d")]
     })
-    # 기존에 같은 티커가 있으면 삭제하고 새로 추가 (중복 방지)
     df_final = pd.concat([df[df["Ticker"] != ticker], df_new])
     save_watchlist_df(df_final)
     st.success(f"✅ [{name}] 관심종목 구글 시트 저장 완료!")
@@ -201,10 +195,7 @@ def fetch_watchlist_data(tickers):
 # =======================================================================
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_krx_fundamentals():
-    """
-    KRX 전 종목의 PER, PBR 데이터를 한 번에 수집하는 엔진
-    가장 최근 영업일 데이터를 기준으로 딕셔너리로 반환합니다.
-    """
+    """KRX 전 종목의 PER, PBR 데이터 수집"""
     for i in range(7):
         target_date = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime("%Y%m%d")
         try:
@@ -220,6 +211,25 @@ def get_krx_fundamentals():
                         "PBR": float(row["PBR"])
                     }
                 return fund_dict
+        except:
+            continue
+    return {}
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_krx_foreign_rate():
+    """KRX 전 종목의 외국인 지분율(보유율) 데이터 수집"""
+    for i in range(7):
+        target_date = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime("%Y%m%d")
+        try:
+            kospi_df = stock.get_exhaustion_rates_of_foreign_investment(target_date, market="KOSPI")
+            if not kospi_df.empty:
+                kosdaq_df = stock.get_exhaustion_rates_of_foreign_investment(target_date, market="KOSDAQ")
+                fund_df = pd.concat([kospi_df, kosdaq_df])
+                
+                rate_dict = {}
+                for ticker, row in fund_df.iterrows():
+                    rate_dict[str(ticker)] = float(row.get("지분율", 0.0))
+                return rate_dict
         except:
             continue
     return {}
@@ -332,7 +342,6 @@ def check_investor_streak_naver(ticker, investor_type, total_days, buy_days, min
         
         recent_df = df.head(total_days)
 
-        # 🔥 강화된 로직: 순매수 > 0 이고, (순매수 / 당일거래량 * 100) >= P% 인 날만 True
         valid_foreign = (recent_df["외국인"] > 0) & (recent_df["거래량"] > 0) & ((recent_df["외국인"] / recent_df["거래량"] * 100) >= min_vol_ratio)
         valid_inst = (recent_df["기관"] > 0) & (recent_df["거래량"] > 0) & ((recent_df["기관"] / recent_df["거래량"] * 100) >= min_vol_ratio)
 
@@ -392,7 +401,6 @@ def fetch_news_rss(query, category):
         return news_list
     except:
         return []
-
 
 # =======================================================================
 # 🌟 섹터 매핑 로직
@@ -480,7 +488,7 @@ def sync_market_sectors_v8(market_type):
     changed = False
 
     if "한국" in market_type:
-        pass # 한국 시장 섹터는 아래의 자동 단어 맵핑으로 처리 (속도 최적화)
+        pass 
     else:
         try:
             sp500 = fdr.StockListing("S&P500")
@@ -632,7 +640,7 @@ def start_100b_dashboard():
             "k_ma_l": 120, "k_ma_c": "조건없음", "k_bb_sq": False, "k_bb_sq_n": 20, "k_bb_sq_pct": 5.0,
             "k_maup_n": 20, "k_maup_m": 5, "k_maup_cond": "조건없음", "k_sector": "조건없음",
             "k_drop_cond": False, "k_drop_target": 30, "k_drop_margin": 5,
-            "k_per": 0.0, "k_pbr": 0.0,
+            "k_per": 0.0, "k_pbr": 0.0, "k_foreigner_rate": 0.0,
         }
         for k, v in defaults.items():
             st.session_state[k] = v
@@ -668,7 +676,6 @@ def start_100b_dashboard():
     st.title("📈 100억 벌고 싶다 (V6.1 초고속 스캔)")
     st.divider()
 
-    # 인베스팅닷컴 탭 삭제
     tab1, tab2 = st.tabs(
         ["🔍 초고속 검색기", "⭐ 나의 관심종목 (신규 추가 가능)"]
     )
@@ -749,7 +756,7 @@ def start_100b_dashboard():
                             "k_ma_s", "k_ma_l", "k_ma_c", "k_bb_sq", "k_bb_sq_n", "k_bb_sq_pct",
                             "k_maup_n", "k_maup_m", "k_maup_cond", "k_sector",
                             "k_drop_cond", "k_drop_target", "k_drop_margin",
-                            "k_per", "k_pbr"
+                            "k_per", "k_pbr", "k_foreigner_rate"
                         ]
                         current_data = {}
                         for k in keys_to_save:
@@ -764,7 +771,7 @@ def start_100b_dashboard():
                                 elif k == "k_bb_sq_pct": val = 5.0
                                 elif k == "k_drop_target": val = 30
                                 elif k == "k_market": val = "한국"
-                                elif k in ["k_per", "k_pbr"]: val = 0.0
+                                elif k in ["k_per", "k_pbr", "k_foreigner_rate"]: val = 0.0
                                 else: val = "조건없음"
                             current_data[k] = val
 
@@ -780,7 +787,7 @@ def start_100b_dashboard():
 
             timeframe = "일봉"
             
-            # 🔥 신규 기능: 가치 지표 (KRX 펀더멘털) 필터
+            # 🔥 신규 기능: 가치 지표 & 외국인 지분율 (KRX 펀더멘털) 필터
             if market == "한국":
                 st.markdown("### 💰 가치 지표 (KRX)")
                 with st.container(border=True):
@@ -795,8 +802,13 @@ def start_100b_dashboard():
                             "PBR 이하 (0=미적용)", min_value=0.0, max_value=50.0, 
                             value=st.session_state.get("k_pbr", 0.0), step=0.1, key="k_pbr", help="입력한 수치 이하의 PBR 종목만 검색"
                         )
+                    
+                    k_foreigner_rate = st.number_input(
+                        "외국인 지분율(%) 이상 (0=미적용)", min_value=0.0, max_value=100.0, 
+                        value=st.session_state.get("k_foreigner_rate", 0.0), step=1.0, key="k_foreigner_rate", help="입력한 수치 이상의 외국인 지분율을 가진 종목만 검색"
+                    )
             else:
-                per_cond, pbr_cond = 0.0, 0.0
+                per_cond, pbr_cond, k_foreigner_rate = 0.0, 0.0, 0.0
 
             # 🔥 신규 기능: 1년 고저밴드 (Range) 위치 필터
             st.markdown("### 📉 고저 밴드 내 현재가 위치")
@@ -1017,6 +1029,7 @@ def start_100b_dashboard():
                 ):
                     sector_map = sync_market_sectors_v8(market)
                     krx_fundamentals = get_krx_fundamentals() if "한국" in market else {}
+                    krx_foreign_rates = get_krx_foreign_rate() if "한국" in market else {}
 
                 matched_stocks, debug_list = {}, []
                 name_map = get_market_database(market)
@@ -1056,19 +1069,20 @@ def start_100b_dashboard():
                     if len(df) < 60:
                         continue
                         
-                    # 🔥 가치 지표 필터링 (한국 시장만 해당)
-                    if "한국" in market and (per_cond > 0 or pbr_cond > 0):
+                    # 🔥 가치 지표 및 외국인 지분율 필터링 (한국 시장만 해당)
+                    t_foreign_rate = 0.0
+                    if "한국" in market:
                         code = ticker.split(".")[0]
-                        fund_data = krx_fundamentals.get(code, {})
-                        t_per = fund_data.get("PER", 0.0)
-                        t_pbr = fund_data.get("PBR", 0.0)
+                        t_per = krx_fundamentals.get(code, {}).get("PER", 0.0)
+                        t_pbr = krx_fundamentals.get(code, {}).get("PBR", 0.0)
+                        t_foreign_rate = krx_foreign_rates.get(code, 0.0)
                         
-                        if per_cond > 0:
-                            if t_per <= 0 or t_per > per_cond:
-                                continue
-                        if pbr_cond > 0:
-                            if t_pbr <= 0 or t_pbr > pbr_cond:
-                                continue
+                        if per_cond > 0 and (t_per <= 0 or t_per > per_cond):
+                            continue
+                        if pbr_cond > 0 and (t_pbr <= 0 or t_pbr > pbr_cond):
+                            continue
+                        if k_foreigner_rate > 0 and t_foreign_rate < k_foreigner_rate:
+                            continue
 
                     if (
                         "한국" in market
@@ -1263,6 +1277,7 @@ def start_100b_dashboard():
                             "당일거래량": float(latest["Volume_line"]),
                             "PER": t_per,
                             "PBR": t_pbr,
+                            "외인지분": t_foreign_rate,
                         }
                     )
 
@@ -1334,6 +1349,7 @@ def start_100b_dashboard():
                             "거래량%": item.get("거래량 비율", "0%"),
                             "PER": float(item.get("PER", 0)),
                             "PBR": float(item.get("PBR", 0)),
+                            "외인지분(%)": float(item.get("외인지분", 0)),
                         }
                     )
                 df_export = pd.DataFrame(export_dl)
@@ -1349,12 +1365,12 @@ def start_100b_dashboard():
                         use_container_width=True,
                     )
 
-                # 🔥 탭 1 넓이 조율 (PER, PBR 열 2개 추가)
-                col_ratio_tab1 = [0.8, 1.5, 1.2, 2.0, 1.6, 1.3, 1.0, 1.0, 1.0, 0.8, 0.8, 1.2, 0.8, 0.8]
+                # 🔥 탭 1 넓이 조율 (외인% 추가)
+                col_ratio_tab1 = [0.8, 1.4, 1.2, 2.0, 1.6, 1.3, 1.0, 1.0, 1.0, 0.8, 0.8, 1.1, 0.8, 0.8, 1.0]
                 h_cols = st.columns(col_ratio_tab1)
                 headers = [
                     "순번", "선택", "티커", "종목명", "섹터", "현재가", 
-                    "1년고", "1년저", "고저밴드", "RSI", "ST", "거래량%", "PER", "PBR"
+                    "1년고", "1년저", "고저밴드", "RSI", "ST", "거래량%", "PER", "PBR", "외인%"
                 ]
                 for i, h in enumerate(headers):
                     h_cols[i].write(f"**{h}**")
@@ -1417,6 +1433,7 @@ def start_100b_dashboard():
                         cols[11].write(item.get("거래량 비율", "0%"))
                         cols[12].write(f"{item.get('PER', 0):.2f}" if item.get("PER", 0) > 0 else "-")
                         cols[13].write(f"{item.get('PBR', 0):.2f}" if item.get("PBR", 0) > 0 else "-")
+                        cols[14].write(f"{item.get('외인지분', 0):.2f}%" if "한국" in c_m and item.get("외인지분", 0) > 0 else "-")
                         st.divider()
 
                 sel_tk = st.session_state["selected_ticker"]
@@ -1425,6 +1442,21 @@ def start_100b_dashboard():
                     st.subheader(
                         f"📊 {sel_tk} ({n_map.get(sel_tk, '')}) 종합 투자 분석"
                     )
+
+                    # 🔥 분석 탭에 가치/수급 지표 노출
+                    if "한국" in c_m:
+                        krx_fundamentals_anal = get_krx_fundamentals()
+                        krx_foreign_rates_anal = get_krx_foreign_rate()
+                        code_anal = sel_tk.split(".")[0]
+                        f_per = krx_fundamentals_anal.get(code_anal, {}).get("PER", 0.0)
+                        f_pbr = krx_fundamentals_anal.get(code_anal, {}).get("PBR", 0.0)
+                        f_fr = krx_foreign_rates_anal.get(code_anal, 0.0)
+                        
+                        mc1, mc2, mc3 = st.columns(3)
+                        mc1.metric("PER (KRX)", f"{f_per:.2f}" if f_per > 0 else "N/A")
+                        mc2.metric("PBR (KRX)", f"{f_pbr:.2f}" if f_pbr > 0 else "N/A")
+                        mc3.metric("외국인 보유율", f"{f_fr:.2f}%" if f_fr > 0 else "N/A")
+                        st.divider()
 
                     tf = st.radio(
                         "시간 축",
