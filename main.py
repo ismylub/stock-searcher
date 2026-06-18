@@ -765,7 +765,8 @@ def start_100b_dashboard():
                                 if k == "k_rsi": val = (0, 100)
                                 elif k in ["k_vol_rank", "k_bb_sq", "k_drop_cond"]: val = False
                                 elif k in ["k_ma_n", "k_vol_n", "k_bb_sq_n", "k_maup_n"]: val = 20
-                                elif k in ["k_ma_s", "k_inv_m", "k_maup_m", "k_drop_margin", "k_inv_pct"]: val = 5.0 if k=="k_inv_pct" else 5
+                                elif k in ["k_ma_s", "k_inv_m", "k_maup_m", "k_drop_margin"]: val = 5
+                                elif k == "k_inv_pct": val = 5.0
                                 elif k == "k_ma_l": val = 120
                                 elif k == "k_inv_n": val = 3
                                 elif k == "k_bb_sq_pct": val = 5.0
@@ -787,30 +788,9 @@ def start_100b_dashboard():
 
             timeframe = "일봉"
             
-            # 🔥 신규 기능: 가치 지표 & 외국인 지분율 (KRX 펀더멘털) 필터
-            if market == "한국":
-                st.markdown("### 💰 가치 지표 (KRX)")
-                with st.container(border=True):
-                    c1, c2 = st.columns(2, gap="small")
-                    with c1:
-                        per_cond = st.number_input(
-                            "PER 이하 (0=미적용)", min_value=0.0, max_value=500.0, 
-                            value=st.session_state.get("k_per", 0.0), step=1.0, key="k_per", help="입력한 수치 이하의 PER 종목만 검색"
-                        )
-                    with c2:
-                        pbr_cond = st.number_input(
-                            "PBR 이하 (0=미적용)", min_value=0.0, max_value=50.0, 
-                            value=st.session_state.get("k_pbr", 0.0), step=0.1, key="k_pbr", help="입력한 수치 이하의 PBR 종목만 검색"
-                        )
-                    
-                    k_foreigner_rate = st.number_input(
-                        "외국인 지분율(%) 이상 (0=미적용)", min_value=0.0, max_value=100.0, 
-                        value=st.session_state.get("k_foreigner_rate", 0.0), step=1.0, key="k_foreigner_rate", help="입력한 수치 이상의 외국인 지분율을 가진 종목만 검색"
-                    )
-            else:
-                per_cond, pbr_cond, k_foreigner_rate = 0.0, 0.0, 0.0
-
-            # 🔥 신규 기능: 1년 고저밴드 (Range) 위치 필터
+            # ---------------------------------------------------------
+            # 🌐 [전체 공통 필터]
+            # ---------------------------------------------------------
             st.markdown("### 📉 고저 밴드 내 현재가 위치")
             with st.container(border=True):
                 k_drop_cond = st.checkbox("🎯 1년 고저밴드 위치(%) 필터 적용", key="k_drop_cond")
@@ -954,7 +934,7 @@ def start_100b_dashboard():
                         key="k_stoch",
                     )
 
-            st.markdown("### 🏢 섹터 필터")
+            st.markdown("### 🏢 섹터 및 거래량")
             with st.container(border=True):
                 avail_sectors = [
                     "조건없음", "정보기술 (IT)", "금융", "헬스케어", "임의소비재",
@@ -976,7 +956,6 @@ def start_100b_dashboard():
                     key="k_vol_rank",
                 )
 
-            st.markdown("### 🇰🇷 수급 & 거래량")
             with st.container(border=True):
                 c1, c2 = st.columns(2, gap="small")
                 with c1:
@@ -985,31 +964,65 @@ def start_100b_dashboard():
                     )
                 with c2:
                     vol_n = st.number_input("기준(N봉)", 1, 100, 20, key="k_vol_n")
-            with st.container(border=True):
-                st.markdown(
-                    '<div class="inline-label" style="margin-bottom: 5px;">외인/기관 (M일 중 N일 매수 + 거래비중)</div>',
-                    unsafe_allow_html=True,
-                )
-                c1, c2, c3, c4 = st.columns([1.3, 0.9, 0.9, 1.2], gap="small")
-                with c1:
-                    investor_type = st.selectbox(
-                        "주체",
-                        ["조건없음", "외인", "기관", "양매수"],
-                        label_visibility="collapsed",
-                        key="k_inv_type",
+
+
+            # ---------------------------------------------------------
+            # 🇰🇷 [한국 시장 전용 필터]
+            # ---------------------------------------------------------
+            st.markdown("---")
+            st.markdown("### 🇰🇷 한국 시장 전용 필터")
+            
+            if market == "한국":
+                st.markdown("#### 💰 가치 & 지분율 (KRX)")
+                with st.container(border=True):
+                    c1, c2 = st.columns(2, gap="small")
+                    with c1:
+                        per_cond = st.number_input(
+                            "PER 이하 (0=미적용)", min_value=0.0, max_value=500.0, 
+                            value=st.session_state.get("k_per", 0.0), step=1.0, key="k_per", help="입력한 수치 이하의 PER 종목만 검색"
+                        )
+                    with c2:
+                        pbr_cond = st.number_input(
+                            "PBR 이하 (0=미적용)", min_value=0.0, max_value=50.0, 
+                            value=st.session_state.get("k_pbr", 0.0), step=0.1, key="k_pbr", help="입력한 수치 이하의 PBR 종목만 검색"
+                        )
+                    
+                    k_foreigner_rate = st.number_input(
+                        "외국인 지분율(%) 이상 (0=미적용)", min_value=0.0, max_value=100.0, 
+                        value=st.session_state.get("k_foreigner_rate", 0.0), step=1.0, key="k_foreigner_rate", help="입력한 수치 이상의 외국인 지분율을 가진 종목만 검색"
                     )
-                with c2:
-                    investor_total_days = st.number_input(
-                        "총(M)", 1, 100, 5, label_visibility="collapsed", key="k_inv_m", help="총 M일 중"
+
+                st.markdown("#### 🕵️‍♂️ 수급 분석 (네이버)")
+                with st.container(border=True):
+                    st.markdown(
+                        '<div class="inline-label" style="margin-bottom: 5px;">외인/기관 (M일 중 N일 매수 + 거래비중)</div>',
+                        unsafe_allow_html=True,
                     )
-                with c3:
-                    investor_buy_days = st.number_input(
-                        "매수(N)", 1, 100, 3, label_visibility="collapsed", key="k_inv_n", help="N일 이상 매수"
-                    )
-                with c4:
-                    investor_min_pct = st.number_input(
-                        "비중(%)", 0.0, 100.0, 5.0, step=1.0, label_visibility="collapsed", key="k_inv_pct", help="매수한 날의 당일 거래량 대비 순매수 최소 비중(%)"
-                    )
+                    c1, c2, c3, c4 = st.columns([1.3, 0.9, 0.9, 1.2], gap="small")
+                    with c1:
+                        investor_type = st.selectbox(
+                            "주체",
+                            ["조건없음", "외인", "기관", "양매수"],
+                            label_visibility="collapsed",
+                            key="k_inv_type",
+                        )
+                    with c2:
+                        investor_total_days = st.number_input(
+                            "총(M)", 1, 100, 5, label_visibility="collapsed", key="k_inv_m", help="총 M일 중"
+                        )
+                    with c3:
+                        investor_buy_days = st.number_input(
+                            "매수(N)", 1, 100, 3, label_visibility="collapsed", key="k_inv_n", help="N일 이상 매수"
+                        )
+                    with c4:
+                        investor_min_pct = st.number_input(
+                            "비중(%)", 0.0, 100.0, 5.0, step=1.0, label_visibility="collapsed", key="k_inv_pct", help="매수한 날의 당일 거래량 대비 순매수 최소 비중(%)"
+                        )
+            else:
+                # 미국 시장 선택 시 에러 방지용 기본값 할당
+                per_cond, pbr_cond, k_foreigner_rate = 0.0, 0.0, 0.0
+                investor_type, investor_total_days, investor_buy_days, investor_min_pct = "조건없음", 5, 3, 5.0
+                st.info("미국 시장은 현재 기술적 분석 필터만 제공됩니다.")
 
             search_btn = scan_action_placeholder.button(
                 "🚀 500종목 1년치 초고속 스캔 (실행)",
@@ -1099,7 +1112,6 @@ def start_100b_dashboard():
                     year_high, year_low = 0, 0
                     band_position = 0
                     try:
-                        # 🔥 1년 치(252일) 고저밴드 확보!
                         last_year_df = df.tail(252 if timeframe == "일봉" else 52)
                         year_high = last_year_df["High_line"].max()
                         year_low = last_year_df["Low_line"].min()
@@ -1109,11 +1121,9 @@ def start_100b_dashboard():
                     latest, prev = df.iloc[-1], df.iloc[-2]
                     cp = float(latest["Close_line"])
 
-                    # 🔥 완벽한 고저밴드 (Range) 위치 계산 로직
                     if year_high > 0 and (year_high - year_low) > 0:
                         band_position = ((cp - year_low) / (year_high - year_low)) * 100
 
-                    # 🔥 신규 고저 밴드 위치 필터
                     if st.session_state.get("k_drop_cond", False):
                         t_ratio = st.session_state.get("k_drop_target", 30)
                         m_ratio = st.session_state.get("k_drop_margin", 5)
@@ -1249,7 +1259,6 @@ def start_100b_dashboard():
                         if recent_max_vol < (bg_max * 1.5):
                             continue
 
-                    # 🔥 가치 지표 결과에 담기 위해 불러오기
                     t_per, t_pbr = 0.0, 0.0
                     if "한국" in market:
                         code = ticker.split(".")[0]
@@ -1365,7 +1374,6 @@ def start_100b_dashboard():
                         use_container_width=True,
                     )
 
-                # 🔥 탭 1 넓이 조율 (외인% 추가)
                 col_ratio_tab1 = [0.8, 1.4, 1.2, 2.0, 1.6, 1.3, 1.0, 1.0, 1.0, 0.8, 0.8, 1.1, 0.8, 0.8, 1.0]
                 h_cols = st.columns(col_ratio_tab1)
                 headers = [
@@ -1443,7 +1451,6 @@ def start_100b_dashboard():
                         f"📊 {sel_tk} ({n_map.get(sel_tk, '')}) 종합 투자 분석"
                     )
 
-                    # 🔥 분석 탭에 가치/수급 지표 노출
                     if "한국" in c_m:
                         krx_fundamentals_anal = get_krx_fundamentals()
                         krx_foreign_rates_anal = get_krx_foreign_rate()
@@ -1813,7 +1820,6 @@ def start_100b_dashboard():
                         search_term = custom_input.strip()
                         search_term_upper = search_term.upper()
                         
-                        # 🔥 KRX 전체 2500개 딕셔너리 호출
                         rev_map_kr = get_krx_full_search_map() 
                         name_map_kr = {v: k for k, v in rev_map_kr.items()} 
                         
@@ -2092,7 +2098,6 @@ def start_100b_dashboard():
                             use_container_width=True,
                         )
 
-                    # 🔥 탭 2(관심종목) 열 너비 조절용 리스트
                     col_ratio_tab2 = [1.5, 0.8, 1, 1.0, 0.7, 0.7, 0.5, 0.5, 0.5, 1.7]
                     hc = st.columns(col_ratio_tab2)
                     hc[0].write("**종목명**")
