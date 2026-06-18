@@ -886,7 +886,7 @@ def start_100b_dashboard():
     st.markdown(
         """
         <style>
-            [data-testid="stSidebarUserContent"] { padding-top: 0rem !important; margin-top: -55px !important; }
+            [data-testid="stSidebarUserContent"] { padding-top: 0rem !important; margin-top: -40px !important; }
             [data-testid="stSidebarUserContent"] h3 { font-size: 15px !important; margin-top: -20px !important; margin-bottom: -10px !important; }
             .inline-label { font-size: 13px !important; font-weight: bold; color: #333333; margin-top: -10px !important; margin-bottom: 2px !important; }
             div[data-baseweb="select"] { font-size: 12px !important; } 
