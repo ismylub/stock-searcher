@@ -1275,7 +1275,7 @@ def start_100b_dashboard():
                         use_container_width=True,
                     )
 
-                col_ratio_tab1 = [1, 2, 1.5, 2.5, 2, 1.5, 1, 1, 1, 1, 1, 1.5]
+                col_ratio_tab1 = [0.7, 2, 1.5, 2.5, 2, 1.5, 1.2, 1.2, 1, 1, 1, 1.5]
                 h_cols = st.columns(col_ratio_tab1)
                 headers = [
                     "순번", "선택", "티커", "종목명", "섹터", "현재가", 
