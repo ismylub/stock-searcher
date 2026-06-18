@@ -95,6 +95,10 @@ def get_market_database_krx(market_type="한국"):
     if df.empty:
         return {}
 
+    # 🔥 1. 시가총액(MKTCAP)을 숫자로 변환 후 내림차순 정렬 (시총 1위부터 정렬)
+    df["MKTCAP"] = pd.to_numeric(df["MKTCAP"], errors="coerce").fillna(0)
+    df = df.sort_values(by="MKTCAP", ascending=False)
+
     ticker_map = {}
     for _, row in df.iterrows():
         code = str(row["ISU_CD"]).zfill(6)
@@ -107,6 +111,10 @@ def get_market_database_krx(market_type="한국"):
             continue
 
         ticker_map[f"{code}{suffix}"] = name
+        
+        # 🔥 2. 스팩/우선주를 제외하고 정확히 500개가 채워지면 반복문 종료
+        if len(ticker_map) >= 500:
+            break
 
     return ticker_map
 
@@ -138,5 +146,8 @@ def get_krx_price_table():
 
     # 스팩/우선주(B) 제외 - 기존 로직과 동일
     out = out[~out["Name"].str.contains("스팩|우B", na=False)]
+    
+    # 🔥 3. 데이터프레임 자체도 시총 기준 상위 500개만 남기도록 정렬 후 자르기
+    out = out.sort_values(by="Mktcap", ascending=False).head(500)
 
     return out.reset_index(drop=True)
