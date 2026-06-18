@@ -280,9 +280,9 @@ def fetch_specific_timeframe_data(ticker, selection):
         return pd.DataFrame()
 
 # =======================================================================
-# 🌐 네이버 금융 수급 연동 로직 (선택적 사용 - 필터링 된 소수 종목만 요청)
+# 🌐 네이버 금융 수급 연동 로직 (비중 % 강화 필터 적용)
 # =======================================================================
-def check_investor_streak_naver(ticker, investor_type, total_days, buy_days):
+def check_investor_streak_naver(ticker, investor_type, total_days, buy_days, min_vol_ratio=5.0):
     if ".KS" not in ticker and ".KQ" not in ticker:
         return False
 
@@ -300,18 +300,23 @@ def check_investor_streak_naver(ticker, investor_type, total_days, buy_days):
             "날짜", "종가", "전일비", "등락률", "거래량", "기관", "외국인", "보유주수", "보유율",
         ]
         df = df.dropna().copy()
-        df["기관"] = pd.to_numeric(df["기관"], errors="coerce")
-        df["외국인"] = pd.to_numeric(df["외국인"], errors="coerce")
+        df["기관"] = pd.to_numeric(df["기관"], errors="coerce").fillna(0)
+        df["외국인"] = pd.to_numeric(df["외국인"], errors="coerce").fillna(0)
+        df["거래량"] = pd.to_numeric(df["거래량"], errors="coerce").fillna(0)
+        
         recent_df = df.head(total_days)
 
+        # 🔥 강화된 로직: 순매수 > 0 이고, (순매수 / 당일거래량 * 100) >= P% 인 날만 True
+        valid_foreign = (recent_df["외국인"] > 0) & (recent_df["거래량"] > 0) & ((recent_df["외국인"] / recent_df["거래량"] * 100) >= min_vol_ratio)
+        valid_inst = (recent_df["기관"] > 0) & (recent_df["거래량"] > 0) & ((recent_df["기관"] / recent_df["거래량"] * 100) >= min_vol_ratio)
+
         if investor_type == "외인":
-            return (recent_df["외국인"] > 0).sum() >= buy_days
+            return valid_foreign.sum() >= buy_days
         elif investor_type == "기관":
-            return (recent_df["기관"] > 0).sum() >= buy_days
+            return valid_inst.sum() >= buy_days
         elif investor_type == "양매수":
-            return ((recent_df["외국인"] > 0).sum() >= buy_days) and (
-                (recent_df["기관"] > 0).sum() >= buy_days
-            )
+            # 양매수의 경우 외인과 기관이 각각 기준 %를 넘은 날을 카운트
+            return (valid_foreign.sum() >= buy_days) and (valid_inst.sum() >= buy_days)
     except:
         pass
     return False
@@ -927,7 +932,11 @@ def start_100b_dashboard():
                     '<div class="inline-label" style="margin-bottom: 5px;">외인/기관 (M일 중 N일 매수)</div>',
                     unsafe_allow_html=True,
                 )
-                c1, c2, c3 = st.columns([1.5, 1, 1], gap="small")
+                st.markdown(
+                    '<div class="inline-label" style="margin-bottom: 5px;">외인/기관 (M일 중 N일 매수 + 거래비중)</div>',
+                    unsafe_allow_html=True,
+                )
+                c1, c2, c3, c4 = st.columns([1.3, 0.9, 0.9, 1.2], gap="small")
                 with c1:
                     investor_type = st.selectbox(
                         "주체",
@@ -937,21 +946,15 @@ def start_100b_dashboard():
                     )
                 with c2:
                     investor_total_days = st.number_input(
-                        "총(M)일",
-                        1,
-                        100,
-                        5,
-                        label_visibility="collapsed",
-                        key="k_inv_m",
+                        "총(M)", 1, 100, 5, label_visibility="collapsed", key="k_inv_m", help="총 M일 중"
                     )
                 with c3:
                     investor_buy_days = st.number_input(
-                        "매수(N)일",
-                        1,
-                        100,
-                        3,
-                        label_visibility="collapsed",
-                        key="k_inv_n",
+                        "매수(N)", 1, 100, 3, label_visibility="collapsed", key="k_inv_n", help="N일 이상 매수"
+                    )
+                with c4:
+                    investor_min_pct = st.number_input(
+                        "비중(%)", 0.0, 100.0, 5.0, step=1.0, label_visibility="collapsed", key="k_inv_pct", help="매수한 날의 당일 거래량 대비 순매수 최소 비중(%)"
                     )
 
             search_btn = scan_action_placeholder.button(
@@ -989,6 +992,7 @@ def start_100b_dashboard():
                                     investor_type,
                                     investor_total_days,
                                     investor_buy_days,
+                                    investor_min_pct, # 🔥 이 줄이 추가되었습니다!
                                 ): t
                                 for t in valid_investor_tickers
                             }
@@ -1984,7 +1988,7 @@ def start_100b_dashboard():
                         )
 
                     # 🔥 탭 2(관심종목) 열 너비 조절용 리스트
-                    col_ratio_tab2 = [1.5, 1, 1, 1.0, 0.7, 0.7, 0.5, 0.5, 0.5, 1.7]
+                    col_ratio_tab2 = [1.5, 0.8, 1, 1.0, 0.7, 0.7, 0.5, 0.5, 0.5, 1.7]
                     hc = st.columns(col_ratio_tab2)
                     hc[0].write("**종목명**")
                     hc[1].write("**등록일**")
