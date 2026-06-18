@@ -62,7 +62,7 @@ def delete_filter_preset(name):
             json.dump(filters, f, ensure_ascii=False, indent=4)
 
 # =======================================================================
-# 💡 구글 시트 전용 관심종목 DB 관리 함수 (기존 로컬 CSV 대체)
+# 💡 구글 시트 전용 관심종목 DB 관리 함수
 # =======================================================================
 def get_watchlist_df():
     """구글 시트에서 데이터를 읽어오는 공통 함수"""
@@ -84,7 +84,6 @@ def save_watchlist_df(df):
     conn.update(worksheet="관심종목", data=df)
 
 def ensure_csv_format():
-    # 이제 로컬 파일이 필요 없으므로 빈 함수로 둡니다 (에러 방지용)
     pass
 
 def save_to_watchlist_local(ticker, name, target1, target2):
@@ -110,29 +109,6 @@ def delete_from_watchlist(ticker):
     if not df.empty:
         df_final = df[df["Ticker"] != ticker]
         save_watchlist_df(df_final)
-
-# =======================================================================
-# 🌐 전체 시장 종목 검색용 확장 사전 (KRX 차단 우회: 네이버 수집)
-# =======================================================================
-@st.cache_data(ttl=86400, show_spinner=False)
-def get_all_korean_tickers_for_search():
-    full_map = {}
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        for sosok in [0, 1]:  # 0: 코스피, 1: 코스닥
-            suffix = ".KS" if sosok == 0 else ".KQ"
-            # 검색용이므로 넉넉하게 40페이지(약 2000개) 스캔
-            for page in range(1, 41):
-                url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={page}"
-                res = requests.get(url, headers=headers, timeout=5)
-                # 정규식(Regex)으로 HTML 글자에서 티커와 종목명만 빛의 속도로 추출!
-                matches = re.findall(r'href="/item/main\.naver\?code=(\d+)".*?class="tltle">(.*?)</a>', res.text)
-                if not matches: break
-                for code, name in matches:
-                    full_map[str(name)] = f"{code}{suffix}"
-    except:
-        pass
-    return full_map
 
 # =======================================================================
 # ⚙️ 보조지표 및 데이터프레임 구조 생성 공통 함수
@@ -220,7 +196,7 @@ def fetch_watchlist_data(tickers):
 
 
 # =======================================================================
-# 🔥 핵심 데이터 수집 엔진 (KRX 차단 우회 -> 네이버 금융 연동)
+# 🔥 핵심 데이터 수집 엔진 (KRX 연동)
 # =======================================================================
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_market_database(market_type):
@@ -228,18 +204,11 @@ def get_market_database(market_type):
         ticker_map = get_market_database_krx(market_type)
         if ticker_map:
             return ticker_map
-        # KRX 실패 시 비상용 기본 종목 (기존 로직 그대로 유지)
         return {
             "005930.KS": "삼성전자", "000660.KS": "SK하이닉스", "373220.KS": "LG에너지솔루션",
-            "207940.KS": "삼성바이오로직스", "005380.KS": "현대차", "000270.KS": "기아",
-            "068270.KS": "셀트리온", "005490.KS": "POSCO홀딩스", "105560.KS": "KB금융",
-            "028260.KS": "삼성물산", "055550.KS": "신한지주", "035420.KS": "NAVER",
-            "006400.KS": "삼성SDI", "032830.KS": "삼성생명", "015760.KS": "한국전력",
-            "033780.KS": "KT&G", "003550.KS": "LG", "051910.KS": "LG화학",
-            "035720.KS": "카카오", "316140.KS": "우리금융지주", "024110.KS": "기업은행"
+            "207940.KS": "삼성바이오로직스", "005380.KS": "현대차", "000270.KS": "기아"
         }
     else:
-        # 미국 시장 로직은 기존 그대로 유지 (FinanceDataReader 사용 부분 건드리지 않음)
         ticker_map = {}
         try:
             sp500 = fdr.StockListing("S&P500")
@@ -311,7 +280,7 @@ def fetch_specific_timeframe_data(ticker, selection):
         return pd.DataFrame()
 
 # =======================================================================
-# 🌐 네이버 금융 수급 연동 로직
+# 🌐 네이버 금융 수급 연동 로직 (선택적 사용 - 필터링 된 소수 종목만 요청)
 # =======================================================================
 def check_investor_streak_naver(ticker, investor_type, total_days, buy_days):
     if ".KS" not in ticker and ".KQ" not in ticker:
@@ -346,128 +315,6 @@ def check_investor_streak_naver(ticker, investor_type, total_days, buy_days):
     except:
         pass
     return False
-
-# =======================================================================
-# 🤖 자체 퀀트 엔진 로직
-# =======================================================================
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_macro_score(market_type):
-    try:
-        ticker = "^KS11" if "한국" in market_type else "^GSPC"
-
-        kwargs = {}
-        if USE_PROXY: kwargs['proxy'] = PROXY_IP
-
-        idx_df = yf.Ticker(ticker).history(period="1mo", **kwargs)
-        if not idx_df.empty:
-            close = idx_df["Close"].iloc[-1]
-            ma20 = idx_df["Close"].rolling(20).mean().iloc[-1]
-            if close > ma20 * 1.01:
-                return 20
-            elif close > ma20:
-                return 15
-            else:
-                return 5
-    except:
-        return 10
-    return 10
-
-def calculate_persona_scores(ticker, df, market_type, skip_naver=False):
-    latest, prev = df.iloc[-1], df.iloc[-2]
-    supply_score = 5
-    if not skip_naver and "한국" in market_type:
-        if check_investor_streak_naver(ticker, "양매수", 5, 3):
-            supply_score = 20
-        elif check_investor_streak_naver(ticker, "양매수", 5, 1):
-            supply_score = 15
-        elif check_investor_streak_naver(
-            ticker, "외인", 5, 3
-        ) or check_investor_streak_naver(ticker, "기관", 5, 3):
-            supply_score = 10
-    else:
-        supply_score = 10
-
-    mom_score = 0
-    rsi = latest.get("RSI", 50)
-    if 50 <= rsi <= 65:
-        mom_score += 10
-    elif 65 < rsi <= 75:
-        mom_score += 5
-    elif rsi > 75:
-        mom_score -= 5
-    if latest.get("MACD", 0) > latest.get("MACD_Signal", 0):
-        mom_score += 5
-    if latest.get("Close_line") > df["Close_line"].rolling(20).mean().iloc[-1]:
-        mom_score += 5
-    mom_score = max(0, min(20, mom_score))
-
-    vol_score = 5
-    vol_avg = df["Volume_line"].rolling(20).mean().iloc[-1]
-    if vol_avg > 0:
-        ratio = latest["Volume_line"] / vol_avg
-        if 1.5 <= ratio <= 3.0:
-            vol_score = 20
-        elif ratio > 3.0:
-            vol_score = 15
-        elif ratio >= 1.0:
-            vol_score = 10
-
-    val_score = 10
-    try:
-        y_high = df["High_line"].tail(252).max()
-        if y_high > 0:
-            drop_ratio = latest["Close_line"] / y_high
-            if drop_ratio < 0.5:
-                val_score += 10
-            elif drop_ratio < 0.7:
-                val_score += 5
-    except:
-        pass
-    val_score = max(0, min(20, val_score))
-
-    macro_score = get_macro_score(market_type)
-    gemini = min(
-        100,
-        int(
-            (mom_score * 2.0)
-            + (supply_score * 1.5)
-            + (vol_score * 1.0)
-            + (macro_score * 0.5)
-            + (val_score * 0.0)
-        ),
-    )
-    claude = min(
-        100,
-        int(
-            (val_score * 2.5)
-            + (macro_score * 1.5)
-            + (supply_score * 1.0)
-            + (mom_score * 0.5)
-            + (vol_score * 0.0)
-        ),
-    )
-    gpt = min(100, int(supply_score + mom_score + vol_score + val_score + macro_score))
-
-    deepseek = 50
-    if rsi < 40:
-        deepseek += 30
-    elif rsi > 70:
-        deepseek -= 40
-    if latest["Close_line"] <= latest.get("BB_Low", 0) * 1.02:
-        deepseek += 20
-    deepseek = max(0, min(100, int(deepseek)))
-
-    return {
-        "gemini": gemini,
-        "gpt": gpt,
-        "claude": claude,
-        "deepseek": deepseek,
-        "supply": supply_score,
-        "momentum": int(mom_score),
-        "volume": vol_score,
-        "value": val_score,
-        "macro": macro_score,
-    }
 
 # =======================================================================
 # 📰 뉴스 수집
@@ -516,118 +363,6 @@ def fetch_news_rss(query, category):
     except:
         return []
 
-# =======================================================================
-# 🕵️‍♂️ 역추적 디코더
-# =======================================================================
-@st.cache_data(ttl=86400, show_spinner=False)
-def get_fdr_marcap():
-    try:
-        kpi = fdr.StockListing('KOSPI')
-        kdq = fdr.StockListing('KOSDAQ')
-        krx = pd.concat([kpi, kdq])
-        k_code = "Symbol" if "Symbol" in krx.columns else "Code"
-        krx[k_code] = krx[k_code].astype(str).str.zfill(6)
-        return {code: marcap for code, marcap in zip(krx[k_code], krx["Marcap"])}
-    except:
-        return {}
-
-def run_investing_decoder():
-    st.subheader(
-        "🕵️‍♂️ 유료 블러 역추적 디코더 (https://kr.investing.com/equities/most-undervalued)"
-    )
-    st.write(
-        "이미 로드된 500개 종목 풀에서 **[현재가, 시가총액]** 필터를 가동해 즉시 찾아냅니다."
-    )
-
-    pasted_data = st.text_area(
-        "데이터 붙여넣기",
-        height=200,
-        placeholder="예: 4,705+49.86%7,163우수양호훌륭함훌륭함적 매수3.923.281.37T14.90",
-    )
-
-    if st.button(
-        "🚀 캐시 기반 융합 스나이퍼 가동", type="primary", use_container_width=True
-    ):
-        if not pasted_data.strip():
-            st.warning("데이터를 입력해주세요.")
-            return
-
-        with st.spinner("메모 지문(가격+시가총액) 스캔 중... (0.01초 소요)"):
-            market = st.session_state.get("k_market", "한국")
-            db = build_database(market, "일봉")
-            name_map = get_market_database(market)
-            marcap_dict = get_fdr_marcap()
-
-            lines = pasted_data.strip().split("\n")
-            results = []
-
-            for line in lines:
-                try:
-                    if not line.strip():
-                        continue
-
-                    price_match = re.search(r"^([\d,]+)", line.strip())
-                    if not price_match:
-                        continue
-                    target_price = float(price_match.group(1).replace(",", ""))
-
-                    line_clean = re.sub(r"\s+", "", line)
-                    end_match = re.search(
-                        r"(적극매수|매수|중립|매도|적극매도|-)(-?\d+\.\d{2}|-)(-?\d+\.\d{2}|-)(\d+\.\d{2}[TBM])(-?\d+\.\d{2}|-)?$",
-                        line_clean,
-                    )
-
-                    target_marcap_raw, target_marcap_computed = None, None
-
-                    if end_match:
-                        target_marcap_raw = end_match.group(4)
-                        numeric_part = float(re.sub(r"[TBM]", "", target_marcap_raw))
-                        if "T" in target_marcap_raw:
-                            target_marcap_computed = numeric_part * 1_000_000_000_000
-                        elif "B" in target_marcap_raw:
-                            target_marcap_computed = numeric_part * 1_000_000_000
-                        elif "M" in target_marcap_raw:
-                            target_marcap_computed = numeric_part * 1_000_000
-
-                    final_candidates = []
-                    margin = target_price * 0.03
-
-                    for tk, df in db.items():
-                        if df.empty:
-                            continue
-                        cp = float(df["Close_line"].iloc[-1])
-
-                        if (target_price - margin) <= cp <= (target_price + margin):
-                            code = tk.split(".")[0]
-                            tk_marcap = marcap_dict.get(code, 0)
-                            pass_marcap = True
-
-                            if target_marcap_computed is not None and tk_marcap > 0:
-                                if not (
-                                    target_marcap_computed * 0.70
-                                    <= tk_marcap
-                                    <= target_marcap_computed * 1.30
-                                ):
-                                    pass_marcap = False
-
-                            if pass_marcap:
-                                final_candidates.append(f"🎯{name_map.get(tk, tk)}")
-
-                    results.append(
-                        {
-                            "입력 현재가": f"{target_price:,.0f}원",
-                            "목표 시가총액": f"{target_marcap_raw}" if target_marcap_raw else "N/A",
-                            "🔍 최종 저격 종목": " | ".join(final_candidates) if final_candidates else "❌ 일치 없음",
-                        }
-                    )
-                except Exception:
-                    continue
-
-            if results:
-                st.success("🎯 시가총액 기반 초정밀 스나이퍼 매칭이 완료되었습니다!")
-                st.dataframe(pd.DataFrame(results), use_container_width=True)
-            else:
-                st.error("추출할 수 유효한 데이터가 없습니다.")
 
 # =======================================================================
 # 🌟 섹터 매핑 로직
@@ -902,8 +637,9 @@ def start_100b_dashboard():
     st.title("📈 100억 벌고 싶다 (V6.1 초고속 스캔)")
     st.divider()
 
-    tab1, tab2, tab3 = st.tabs(
-        ["🔍 초고속 검색기", "⭐ 나의 관심종목 (신규 추가 가능)", "🕵️‍♂️ 인베스팅닷컴 추천주 역추적"]
+    # 인베스팅닷컴 탭 삭제
+    tab1, tab2 = st.tabs(
+        ["🔍 초고속 검색기", "⭐ 나의 관심종목 (신규 추가 가능)"]
     )
 
     # =======================================================================
@@ -1624,33 +1360,6 @@ def start_100b_dashboard():
                     if df.empty:
                         st.error("데이터 로드 실패")
                     else:
-                        ai_scores = calculate_persona_scores(
-                            sel_tk, df, c_m
-                        )
-
-                        st.markdown("#### 🎯 AI 모델별 투자 매력도")
-                        st.write(
-                            "각 AI의 투자 성향(모멘텀, 가치, 균형, 역발상)을 반영하여 100점 만점으로 환산한 자체 평가 점수입니다."
-                        )
-                        sc1, sc2, sc3, sc4 = st.columns(4)
-                        sc1.metric("🚀 Gemini (모멘텀형)", f"{ai_scores['gemini']}점")
-                        sc2.metric("💬 ChatGPT (균형/성장형)", f"{ai_scores['gpt']}점")
-                        sc3.metric(
-                            "🧠 Claude (가치/안전형)", f"{ai_scores['claude']}점"
-                        )
-                        sc4.metric(
-                            "🦅 DeepSeek (단기/역추세)", f"{ai_scores['deepseek']}점"
-                        )
-
-                        with st.expander("📊 AI 세부 채점표 (총 100점 만점 기준)"):
-                            ec1, ec2, ec3, ec4, ec5 = st.columns(5)
-                            ec1.metric("수급 (20점)", f"{ai_scores['supply']}점")
-                            ec2.metric("모멘텀 (20점)", f"{ai_scores['momentum']}점")
-                            ec3.metric("거래량 (20점)", f"{ai_scores['volume']}점")
-                            ec4.metric("가치 (10점)", f"{ai_scores['value']}점")
-                            ec5.metric("거시경제 (30점)", f"{ai_scores['macro']}점")
-                        st.divider()
-
                         active_subplots = []
                         if rsi_show == "적용":
                             active_subplots.append("RSI")
@@ -1980,7 +1689,7 @@ def start_100b_dashboard():
             st.markdown(
                 "야후 파이낸스에 상장된 **전 세계 모든 주식/ETF (500개 풀 외 전부)**를 무제한 추가할 수 있습니다.\n\n"
                 "- **티커를 아는 경우**: `OKLO`, `TSLA`, `005930.KS` 등 티커를 직접 입력하면 즉시 추가됩니다.\n"
-                "- **종목명만 아는 경우**: 한국 주식은 이름만 적어도 전체 시장(2500여 개)을 뒤져서 자동으로 티커를 찾아줍니다."
+                "- **종목명만 아는 경우**: 한국/미국 주식은 이름만 적어도 전체 시장 리스트를 뒤져서 자동으로 티커를 찾아줍니다."
             )
             c_add1, c_add2 = st.columns([7, 3])
             with c_add1:
@@ -1995,22 +1704,25 @@ def start_100b_dashboard():
                         search_term = custom_input.strip()
                         search_term_upper = search_term.upper()
                         
-                        all_kr_map = get_all_korean_tickers_for_search()
+                        name_map_kr = get_market_database("한국")
                         name_map_us = get_market_database("미국")
+                        rev_map_kr = {v: k for k, v in name_map_kr.items()}
                         rev_map_us = {v: k for k, v in name_map_us.items()}
                         
                         final_ticker = ""
                         final_name = ""
                         
-                        if search_term in all_kr_map:
-                            final_ticker = all_kr_map[search_term]
+                        if search_term in rev_map_kr:
+                            final_ticker = rev_map_kr[search_term]
                             final_name = search_term
                         elif search_term in rev_map_us:
                             final_ticker = rev_map_us[search_term]
                             final_name = search_term
                         else:
                             final_ticker = search_term_upper
-                            if final_ticker in name_map_us:
+                            if final_ticker in name_map_kr:
+                                final_name = name_map_kr[final_ticker]
+                            elif final_ticker in name_map_us:
                                 final_name = name_map_us[final_ticker]
                             else:
                                 final_name = search_term_upper  
@@ -2269,8 +1981,9 @@ def start_100b_dashboard():
                             use_container_width=True,
                         )
 
-                    col_ratio = [1.0, 0.8, 1.2, 1.0, 0.8, 0.8, 0.8, 0.5, 0.5, 1.7]
-                    hc = st.columns(col_ratio)
+                    # 🔥 탭 2(관심종목) 열 너비 조절용 리스트
+                    col_ratio_tab2 = [1.0, 0.8, 1.2, 1.0, 0.8, 0.8, 0.8, 0.5, 0.5, 1.7]
+                    hc = st.columns(col_ratio_tab2)
                     hc[0].write("**종목명**")
                     hc[1].write("**등록일**")
                     hc[2].write("**섹터**")
@@ -2294,7 +2007,7 @@ def start_100b_dashboard():
                             )
                             diff1_pct = item["diff1_pct"]
 
-                            cc = st.columns(col_ratio)
+                            cc = st.columns(col_ratio_tab2)
                             cc[0].write(f"**{nm}**\n({tk})")
                             cc[1].write(dt)
                             cc[2].write(str(item.get("sector", "미분류"))[:12])
@@ -2380,12 +2093,6 @@ def start_100b_dashboard():
                                 st.error("삭제 완료!")
                                 st.rerun()
                             st.divider()
-
-    # =======================================================================
-    # 🕵️‍♂️ 탭 3: 유료 블러 역추적 디코더
-    # =======================================================================
-    with tab3:
-        run_investing_decoder()
 
 if __name__ == "__main__":
     if "streamlit" not in sys.modules and not sys.argv[0].endswith("streamlit"):
