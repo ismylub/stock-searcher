@@ -195,9 +195,10 @@ def fetch_watchlist_data(tickers):
 # =======================================================================
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_krx_fundamentals():
-    """KRX 전 종목의 PER, PBR 데이터 수집"""
+    """KRX 전 종목의 PER, PBR 데이터 수집 (캐시 오염 방지 적용)"""
+    now_kst = datetime.datetime.now(pytz.timezone("Asia/Seoul"))
     for i in range(7):
-        target_date = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime("%Y%m%d")
+        target_date = (now_kst - datetime.timedelta(days=i)).strftime("%Y%m%d")
         try:
             kospi_fund = stock.get_market_fundamental(target_date, market="KOSPI")
             if not kospi_fund.empty:
@@ -206,21 +207,24 @@ def get_krx_fundamentals():
                 
                 fund_dict = {}
                 for ticker, row in fund_df.iterrows():
-                    # Zfill로 6자리 텍스트 코드로 완벽 매칭 준비
                     fund_dict[str(ticker).zfill(6)] = {
-                        "PER": float(row["PER"]),
-                        "PBR": float(row["PBR"])
+                        "PER": float(row["PER"]) if pd.notna(row["PER"]) else 0.0,
+                        "PBR": float(row["PBR"]) if pd.notna(row["PBR"]) else 0.0
                     }
                 return fund_dict
-        except:
+        except Exception:
             continue
+            
+    # 데이터를 못 가져왔을 때 빈 캐시가 저장되는 것을 막기 위해 캐시 삭제
+    get_krx_fundamentals.clear()
     return {}
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_krx_foreign_rate():
-    """KRX 전 종목의 외국인 지분율(보유율) 데이터 수집"""
+    """KRX 전 종목의 외국인 지분율(보유율) 데이터 수집 (캐시 오염 방지 적용)"""
+    now_kst = datetime.datetime.now(pytz.timezone("Asia/Seoul"))
     for i in range(7):
-        target_date = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime("%Y%m%d")
+        target_date = (now_kst - datetime.timedelta(days=i)).strftime("%Y%m%d")
         try:
             kospi_df = stock.get_exhaustion_rates_of_foreign_investment(target_date, market="KOSPI")
             if not kospi_df.empty:
@@ -231,8 +235,11 @@ def get_krx_foreign_rate():
                 for ticker, row in fund_df.iterrows():
                     rate_dict[str(ticker).zfill(6)] = float(row.get("지분율", 0.0))
                 return rate_dict
-        except:
+        except Exception:
             continue
+            
+    # 데이터를 못 가져왔을 때 빈 캐시가 저장되는 것을 막기 위해 캐시 삭제
+    get_krx_foreign_rate.clear()
     return {}
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -672,11 +679,12 @@ def start_100b_dashboard():
             
             /* 🔥 검색 결과 테이블 텍스트를 강제로 한 줄로 유지하고 크기를 줄임 */
             div[data-testid="column"] p {
-                font-size: 12.5px !important;
+                font-size: 12px !important;
                 white-space: nowrap !important;
                 overflow: hidden !important;
                 text-overflow: ellipsis !important;
                 margin-bottom: 0px !important;
+                letter-spacing: -0.5px;
             }
             /* 테이블 내 분석/등록 버튼 여백 축소 */
             div[data-testid="column"] button {
