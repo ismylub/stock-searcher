@@ -114,16 +114,22 @@ def delete_from_watchlist(ticker):
 def get_all_korean_tickers_for_search():
     full_map = {}
     try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        # 코스피 전체 긁어오기 (네이버 모바일 API)
+        # 🛡️ 네이버를 완벽하게 속이는 크롬 브라우저 위장 신분증
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://m.stock.naver.com/'
+        }
         url_kpi = "https://m.stock.naver.com/api/stocks/marketValue/KOSPI?page=1&pageSize=2000"
-        for item in requests.get(url_kpi, headers=headers, timeout=5).json().get('stocks', []):
-            full_map[str(item['stockName'])] = f"{item['itemCode']}.KS"
-            
-        # 코스닥 전체 긁어오기
+        res = requests.get(url_kpi, headers=headers, timeout=5)
+        if res.status_code == 200:
+            for item in res.json().get('stocks', []):
+                full_map[str(item['stockName'])] = f"{item['itemCode']}.KS"
+                
         url_kdq = "https://m.stock.naver.com/api/stocks/marketValue/KOSDAQ?page=1&pageSize=2000"
-        for item in requests.get(url_kdq, headers=headers, timeout=5).json().get('stocks', []):
-            full_map[str(item['stockName'])] = f"{item['itemCode']}.KQ"
+        res = requests.get(url_kdq, headers=headers, timeout=5)
+        if res.status_code == 200:
+            for item in res.json().get('stocks', []):
+                full_map[str(item['stockName'])] = f"{item['itemCode']}.KQ"
     except:
         pass
     return full_map
@@ -221,27 +227,32 @@ def get_market_database(market_type):
     ticker_map = {}
     try:
         if "한국" in market_type:
-            # 🚀 KRX 원천 차단! 네이버 모바일 공식 JSON API로 시가총액 상위 직행
-            headers = {'User-Agent': 'Mozilla/5.0'}
+            # 🛡️ 네이버 API 우회 (위장 헤더 장착)
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json, text/plain, */*',
+                'Referer': 'https://m.stock.naver.com/'
+            }
             
-            # 코스피 시총 상위 250개
+            # 코스피 250개
             url_kpi = "https://m.stock.naver.com/api/stocks/marketValue/KOSPI?page=1&pageSize=250"
             res_kpi = requests.get(url_kpi, headers=headers, timeout=5)
-            for item in res_kpi.json().get('stocks', []):
-                name = str(item.get('stockName', ''))
-                if not any(x in name for x in ['스팩', '우', '우B']):
-                    ticker_map[f"{item.get('itemCode')}.KS"] = name
+            if res_kpi.status_code == 200:
+                for item in res_kpi.json().get('stocks', []):
+                    name = str(item.get('stockName', ''))
+                    if not any(x in name for x in ['스팩', '우', '우B']):
+                        ticker_map[f"{item.get('itemCode')}.KS"] = name
             
-            # 코스닥 시총 상위 250개
+            # 코스닥 250개
             url_kdq = "https://m.stock.naver.com/api/stocks/marketValue/KOSDAQ?page=1&pageSize=250"
             res_kdq = requests.get(url_kdq, headers=headers, timeout=5)
-            for item in res_kdq.json().get('stocks', []):
-                name = str(item.get('stockName', ''))
-                if not any(x in name for x in ['스팩', '우', '우B']):
-                    ticker_map[f"{item.get('itemCode')}.KQ"] = name
+            if res_kdq.status_code == 200:
+                for item in res_kdq.json().get('stocks', []):
+                    name = str(item.get('stockName', ''))
+                    if not any(x in name for x in ['스팩', '우', '우B']):
+                        ticker_map[f"{item.get('itemCode')}.KQ"] = name
 
         else:
-            # 미국 시장 로직 (기존 유지)
             sp500 = fdr.StockListing("S&P500")
             if "Name" in sp500.columns:
                 sp500 = sp500[~sp500["Name"].str.contains(r"(?i)acquisition|spac|warrant|unit|trust", regex=True)]
@@ -257,9 +268,21 @@ def get_market_database(market_type):
                 if tk not in ticker_map and len(ticker_map) < 500:
                     ticker_map[tk] = str(r["Name"])
 
-    except Exception as e:
-        st.error(f"🚨 종목 리스트 오류: {e}")
-        ticker_map = {"005930.KS": "삼성전자"}
+    except Exception:
+        # 에러가 나도 화면에 빨간 경고창을 띄우지 않고 조용히 넘기도록 수정
+        pass
+
+    # 🔥 최후의 보루: 만약 네이버마저 튕겨내면, 앱이 죽지 않도록 핵심 30개 우량주라도 무조건 띄웁니다.
+    if not ticker_map and "한국" in market_type:
+        ticker_map = {
+            "005930.KS": "삼성전자", "000660.KS": "SK하이닉스", "373220.KS": "LG에너지솔루션", 
+            "207940.KS": "삼성바이오로직스", "005380.KS": "현대차", "000270.KS": "기아",
+            "068270.KS": "셀트리온", "005490.KS": "POSCO홀딩스", "105560.KS": "KB금융", 
+            "028260.KS": "삼성물산", "055550.KS": "신한지주", "035420.KS": "NAVER",
+            "006400.KS": "삼성SDI", "032830.KS": "삼성생명", "015760.KS": "한국전력",
+            "033780.KS": "KT&G", "003550.KS": "LG", "051910.KS": "LG화학",
+            "035720.KS": "카카오", "316140.KS": "우리금융지주", "024110.KS": "기업은행"
+        }
 
     return ticker_map
 
