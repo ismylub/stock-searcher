@@ -15,6 +15,7 @@ from io import StringIO
 import xml.etree.ElementTree as ET
 import difflib
 import json
+from krx_data import get_market_database_krx, get_krx_price_table
 
 # =======================================================================
 # 🛡️ IP 차단 방지 글로벌 설정
@@ -23,8 +24,8 @@ USE_PROXY = False
 PROXY_IP = "http://YOUR_PROXY_IP:PORT" 
 PROXY_DICT = {"http": PROXY_IP, "https": PROXY_IP}
 
-REQUEST_DELAY = 0.05 
-MAX_WORKERS = 20
+REQUEST_DELAY = 0.3 
+MAX_WORKERS = 5
 
 def get_urllib_opener():
     if USE_PROXY:
@@ -218,35 +219,32 @@ def fetch_watchlist_data(tickers):
 # =======================================================================
 # 🔥 핵심 데이터 수집 엔진 (KRX 차단 우회 -> 네이버 금융 연동)
 # =======================================================================
-@st.cache_data(ttl=1, show_spinner=False)
+@st.cache_data(ttl=86400, show_spinner=False)
 def get_market_database(market_type):
-    ticker_map = {}
-    try:
-        if "한국" in market_type:
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-            
-            # 코스피(0), 코스닥(1) 시가총액 상위 5페이지(250개씩) 긁기
-            for sosok in [0, 1]:
-                suffix = ".KS" if sosok == 0 else ".KQ"
-                for page in range(1, 6):
-                    url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={page}"
-                    res = requests.get(url, headers=headers, timeout=5)
-                    
-                    # 🔥 에러 발생 시 숨기지 않고 즉시 뿜어내도록 설정!
-                    res.raise_for_status()
-                    
-                    matches = re.findall(r'href="/item/main\.naver\?code=(\d+)".*?class="tltle">(.*?)</a>', res.text)
-                    for code, name in matches:
-                        if not any(x in name for x in ['스팩', '우', '우B']):
-                            ticker_map[f"{code}{suffix}"] = name
-        else:
+    if "한국" in market_type:
+        ticker_map = get_market_database_krx(market_type)
+        if ticker_map:
+            return ticker_map
+        # KRX 실패 시 비상용 기본 종목 (기존 로직 그대로 유지)
+        return {
+            "005930.KS": "삼성전자", "000660.KS": "SK하이닉스", "373220.KS": "LG에너지솔루션",
+            "207940.KS": "삼성바이오로직스", "005380.KS": "현대차", "000270.KS": "기아",
+            "068270.KS": "셀트리온", "005490.KS": "POSCO홀딩스", "105560.KS": "KB금융",
+            "028260.KS": "삼성물산", "055550.KS": "신한지주", "035420.KS": "NAVER",
+            "006400.KS": "삼성SDI", "032830.KS": "삼성생명", "015760.KS": "한국전력",
+            "033780.KS": "KT&G", "003550.KS": "LG", "051910.KS": "LG화학",
+            "035720.KS": "카카오", "316140.KS": "우리금융지주", "024110.KS": "기업은행"
+        }
+    else:
+        # 미국 시장 로직은 기존 그대로 유지 (FinanceDataReader 사용 부분 건드리지 않음)
+        ticker_map = {}
+        try:
             sp500 = fdr.StockListing("S&P500")
             if "Name" in sp500.columns:
                 sp500 = sp500[~sp500["Name"].str.contains(r"(?i)acquisition|spac|warrant|unit|trust", regex=True)]
             for _, r in sp500.iterrows():
                 if len(ticker_map) < 500:
                     ticker_map[str(r["Symbol"]).replace(".", "-")] = str(r["Name"])
-            
             nasdaq = fdr.StockListing("NASDAQ")
             if "Name" in nasdaq.columns:
                 nasdaq = nasdaq[~nasdaq["Name"].str.contains(r"(?i)acquisition|spac|warrant|unit|trust", regex=True)]
@@ -254,24 +252,9 @@ def get_market_database(market_type):
                 tk = str(r["Symbol"]).replace(".", "-")
                 if tk not in ticker_map and len(ticker_map) < 500:
                     ticker_map[tk] = str(r["Name"])
-
-    except Exception as e:
-        # 🔥 선생님 말씀대로, 에러가 나면 무조건 빨간 창으로 이유를 알려줍니다!
-        st.error(f"🚨 [종목 수집 실패] 원인 파악용 알람: {e}")
-
-    # 만약 진짜 다 실패하면 앱이 멈추지 않게 21개만 띄움
-    if not ticker_map and "한국" in market_type:
-        ticker_map = {
-            "005930.KS": "삼성전자", "000660.KS": "SK하이닉스", "373220.KS": "LG에너지솔루션", 
-            "207940.KS": "삼성바이오로직스", "005380.KS": "현대차", "000270.KS": "기아",
-            "068270.KS": "셀트리온", "005490.KS": "POSCO홀딩스", "105560.KS": "KB금융", 
-            "028260.KS": "삼성물산", "055550.KS": "신한지주", "035420.KS": "NAVER",
-            "006400.KS": "삼성SDI", "032830.KS": "삼성생명", "015760.KS": "한국전력",
-            "033780.KS": "KT&G", "003550.KS": "LG", "051910.KS": "LG화학",
-            "035720.KS": "카카오", "316140.KS": "우리금융지주", "024110.KS": "기업은행"
-        }
-
-    return ticker_map
+        except Exception as e:
+            st.error(f"🚨 [미국 종목 수집 실패] {e}")
+        return ticker_map
 
 @st.cache_data(ttl=14400, show_spinner=False)
 def build_database(market_type, timeframe="일봉"):
