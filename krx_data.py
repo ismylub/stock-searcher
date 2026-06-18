@@ -151,3 +151,23 @@ def get_krx_price_table():
     out = out.sort_values(by="Mktcap", ascending=False).head(500)
 
     return out.reset_index(drop=True)
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_krx_full_search_map():
+    """
+    관심종목 이름 검색용 (전체 종목 이름 -> 티커 딕셔너리)
+    반환: {"삼성전자": "005930.KS", "카카오": "035720.KQ", ...}
+    """
+    df = fetch_krx_all_market()
+    if df.empty:
+        return {}
+        
+    search_map = {}
+    for _, row in df.iterrows():
+        code = str(row["ISU_CD"]).zfill(6)
+        name = row["ISU_NM"]
+        mkt = row["MKT_NM"]
+        suffix = ".KS" if mkt == "KOSPI" else ".KQ"
+        search_map[name] = f"{code}{suffix}"
+        
+    return search_map
