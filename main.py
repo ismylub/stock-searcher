@@ -17,6 +17,7 @@ import difflib
 import json
 from krx_data import get_market_database_krx, get_krx_price_table, get_krx_full_search_map
 from streamlit_gsheets import GSheetsConnection
+from pykrx import stock  # 🔥 KRX 펀더멘털 데이터 로드를 위한 pykrx 추가
 
 # =======================================================================
 # 🛡️ IP 차단 방지 글로벌 설정
@@ -159,7 +160,7 @@ def fetch_watchlist_data(tickers):
     if USE_PROXY: kwargs['proxy'] = PROXY_IP
     
     group_data = yf.download(
-        tickers, period="6mo", interval="1d", group_by="ticker", threads=True, **kwargs
+        tickers, period="1y", interval="1d", group_by="ticker", threads=True, **kwargs
     )
 
     for t in tickers:
@@ -196,8 +197,33 @@ def fetch_watchlist_data(tickers):
 
 
 # =======================================================================
-# 🔥 핵심 데이터 수집 엔진 (KRX 연동)
+# 🔥 핵심 데이터 수집 엔진 (KRX 연동 및 펀더멘털)
 # =======================================================================
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_krx_fundamentals():
+    """
+    KRX 전 종목의 PER, PBR 데이터를 한 번에 수집하는 엔진
+    가장 최근 영업일 데이터를 기준으로 딕셔너리로 반환합니다.
+    """
+    for i in range(7):
+        target_date = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime("%Y%m%d")
+        try:
+            kospi_fund = stock.get_market_fundamental(target_date, market="KOSPI")
+            if not kospi_fund.empty:
+                kosdaq_fund = stock.get_market_fundamental(target_date, market="KOSDAQ")
+                fund_df = pd.concat([kospi_fund, kosdaq_fund])
+                
+                fund_dict = {}
+                for ticker, row in fund_df.iterrows():
+                    fund_dict[str(ticker)] = {
+                        "PER": float(row["PER"]),
+                        "PBR": float(row["PBR"])
+                    }
+                return fund_dict
+        except:
+            continue
+    return {}
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_market_database(market_type):
     if "한국" in market_type:
@@ -234,7 +260,7 @@ def build_database(market_type, timeframe="일봉"):
     if not tickers:
         tickers = ["005930.KS"]
 
-    p = "6mo"
+    p = "1y"
     i = "1wk" if timeframe == "주봉" else "1d"
 
     kwargs = {"progress": False}
@@ -266,9 +292,9 @@ def fetch_specific_timeframe_data(ticker, selection):
     if selection == "60분봉":
         p, i = "2mo", "60m"
     elif selection == "주봉":
-        p, i = "6mo", "1wk"
+        p, i = "1y", "1wk"
     else:
-        p, i = "6mo", "1d"
+        p, i = "1y", "1d"
 
     try:
         kwargs = {"progress": False}
@@ -315,7 +341,6 @@ def check_investor_streak_naver(ticker, investor_type, total_days, buy_days, min
         elif investor_type == "기관":
             return valid_inst.sum() >= buy_days
         elif investor_type == "양매수":
-            # 양매수의 경우 외인과 기관이 각각 기준 %를 넘은 날을 카운트
             return (valid_foreign.sum() >= buy_days) and (valid_inst.sum() >= buy_days)
     except:
         pass
@@ -603,10 +628,11 @@ def start_100b_dashboard():
             "k_market": "한국", "k_array": "조건없음", "k_ma_n": 20, "k_ma_cond": "조건없음",
             "k_ichi": "조건없음", "k_bb": "조건없음", "k_macd": "조건없음", "k_rsi": (0, 100),
             "k_stoch": "조건없음", "k_vol": "조건없음", "k_vol_n": 20, "k_inv_type": "조건없음",
-            "k_inv_m": 5, "k_inv_n": 3, "k_vol_rank": False, "k_ma_s": 5, "k_ma_l": 120,
-            "k_ma_c": "조건없음", "k_bb_sq": False, "k_bb_sq_n": 20, "k_bb_sq_pct": 5.0,
+            "k_inv_m": 5, "k_inv_n": 3, "k_inv_pct": 5.0, "k_vol_rank": False, "k_ma_s": 5, 
+            "k_ma_l": 120, "k_ma_c": "조건없음", "k_bb_sq": False, "k_bb_sq_n": 20, "k_bb_sq_pct": 5.0,
             "k_maup_n": 20, "k_maup_m": 5, "k_maup_cond": "조건없음", "k_sector": "조건없음",
             "k_drop_cond": False, "k_drop_target": 30, "k_drop_margin": 5,
+            "k_per": 0.0, "k_pbr": 0.0,
         }
         for k, v in defaults.items():
             st.session_state[k] = v
@@ -719,10 +745,11 @@ def start_100b_dashboard():
                         keys_to_save = [
                             "k_market", "k_array", "k_ma_n", "k_ma_cond", "k_ichi",
                             "k_bb", "k_macd", "k_rsi", "k_stoch", "k_vol", "k_vol_n",
-                            "k_inv_type", "k_inv_m", "k_inv_n", "k_vol_rank", "k_ma_s",
-                            "k_ma_l", "k_ma_c", "k_bb_sq", "k_bb_sq_n", "k_bb_sq_pct",
+                            "k_inv_type", "k_inv_m", "k_inv_n", "k_inv_pct", "k_vol_rank", 
+                            "k_ma_s", "k_ma_l", "k_ma_c", "k_bb_sq", "k_bb_sq_n", "k_bb_sq_pct",
                             "k_maup_n", "k_maup_m", "k_maup_cond", "k_sector",
-                            "k_drop_cond", "k_drop_target", "k_drop_margin"
+                            "k_drop_cond", "k_drop_target", "k_drop_margin",
+                            "k_per", "k_pbr"
                         ]
                         current_data = {}
                         for k in keys_to_save:
@@ -731,12 +758,13 @@ def start_100b_dashboard():
                                 if k == "k_rsi": val = (0, 100)
                                 elif k in ["k_vol_rank", "k_bb_sq", "k_drop_cond"]: val = False
                                 elif k in ["k_ma_n", "k_vol_n", "k_bb_sq_n", "k_maup_n"]: val = 20
-                                elif k in ["k_ma_s", "k_inv_m", "k_maup_m", "k_drop_margin"]: val = 5
+                                elif k in ["k_ma_s", "k_inv_m", "k_maup_m", "k_drop_margin", "k_inv_pct"]: val = 5.0 if k=="k_inv_pct" else 5
                                 elif k == "k_ma_l": val = 120
                                 elif k == "k_inv_n": val = 3
                                 elif k == "k_bb_sq_pct": val = 5.0
                                 elif k == "k_drop_target": val = 30
                                 elif k == "k_market": val = "한국"
+                                elif k in ["k_per", "k_pbr"]: val = 0.0
                                 else: val = "조건없음"
                             current_data[k] = val
 
@@ -751,6 +779,24 @@ def start_100b_dashboard():
             st.divider()
 
             timeframe = "일봉"
+            
+            # 🔥 신규 기능: 가치 지표 (KRX 펀더멘털) 필터
+            if market == "한국":
+                st.markdown("### 💰 가치 지표 (KRX)")
+                with st.container(border=True):
+                    c1, c2 = st.columns(2, gap="small")
+                    with c1:
+                        per_cond = st.number_input(
+                            "PER 이하 (0=미적용)", min_value=0.0, max_value=500.0, 
+                            value=st.session_state.get("k_per", 0.0), step=1.0, key="k_per", help="입력한 수치 이하의 PER 종목만 검색"
+                        )
+                    with c2:
+                        pbr_cond = st.number_input(
+                            "PBR 이하 (0=미적용)", min_value=0.0, max_value=50.0, 
+                            value=st.session_state.get("k_pbr", 0.0), step=0.1, key="k_pbr", help="입력한 수치 이하의 PBR 종목만 검색"
+                        )
+            else:
+                per_cond, pbr_cond = 0.0, 0.0
 
             # 🔥 신규 기능: 1년 고저밴드 (Range) 위치 필터
             st.markdown("### 📉 고저 밴드 내 현재가 위치")
@@ -954,7 +1000,7 @@ def start_100b_dashboard():
                     )
 
             search_btn = scan_action_placeholder.button(
-                "🚀 500종목 일봉 초고속 스캔 (실행)",
+                "🚀 500종목 1년치 초고속 스캔 (실행)",
                 use_container_width=True,
                 type="primary",
             )
@@ -962,14 +1008,15 @@ def start_100b_dashboard():
             if search_btn:
                 st.session_state["selected_ticker"] = "NONE"
                 with st.spinner(
-                    f"글로벌 데이터({timeframe}) 스캔 중... (무거운 실적 수집 제거로 초고속!)"
+                    f"글로벌 데이터 1년치 스캔 중... (무거운 실적 수집 제거로 초고속!)"
                 ):
                     db = build_database(market, timeframe)
 
                 with st.spinner(
-                    f"섹터 DB 점검 및 동기화 중... (최초 1회만 데이터 수집)"
+                    f"가치 지표 및 섹터 DB 동기화 중..."
                 ):
                     sector_map = sync_market_sectors_v8(market)
+                    krx_fundamentals = get_krx_fundamentals() if "한국" in market else {}
 
                 matched_stocks, debug_list = {}, []
                 name_map = get_market_database(market)
@@ -988,7 +1035,7 @@ def start_100b_dashboard():
                                     investor_type,
                                     investor_total_days,
                                     investor_buy_days,
-                                    investor_min_pct, # 🔥 이 줄이 추가되었습니다!
+                                    investor_min_pct,
                                 ): t
                                 for t in valid_investor_tickers
                             }
@@ -1008,6 +1055,21 @@ def start_100b_dashboard():
 
                     if len(df) < 60:
                         continue
+                        
+                    # 🔥 가치 지표 필터링 (한국 시장만 해당)
+                    if "한국" in market and (per_cond > 0 or pbr_cond > 0):
+                        code = ticker.split(".")[0]
+                        fund_data = krx_fundamentals.get(code, {})
+                        t_per = fund_data.get("PER", 0.0)
+                        t_pbr = fund_data.get("PBR", 0.0)
+                        
+                        if per_cond > 0:
+                            if t_per <= 0 or t_per > per_cond:
+                                continue
+                        if pbr_cond > 0:
+                            if t_pbr <= 0 or t_pbr > pbr_cond:
+                                continue
+
                     if (
                         "한국" in market
                         and investor_type != "조건없음"
@@ -1023,6 +1085,7 @@ def start_100b_dashboard():
                     year_high, year_low = 0, 0
                     band_position = 0
                     try:
+                        # 🔥 1년 치(252일) 고저밴드 확보!
                         last_year_df = df.tail(252 if timeframe == "일봉" else 52)
                         year_high = last_year_df["High_line"].max()
                         year_low = last_year_df["Low_line"].min()
@@ -1172,6 +1235,13 @@ def start_100b_dashboard():
                         if recent_max_vol < (bg_max * 1.5):
                             continue
 
+                    # 🔥 가치 지표 결과에 담기 위해 불러오기
+                    t_per, t_pbr = 0.0, 0.0
+                    if "한국" in market:
+                        code = ticker.split(".")[0]
+                        t_per = krx_fundamentals.get(code, {}).get("PER", 0.0)
+                        t_pbr = krx_fundamentals.get(code, {}).get("PBR", 0.0)
+
                     matched_stocks[ticker] = df
                     debug_list.append(
                         {
@@ -1191,6 +1261,8 @@ def start_100b_dashboard():
                             "Stoch %K": round(latest["Stoch_K"], 1),
                             "거래량 비율": f"{vol_ratio:.1f}%",
                             "당일거래량": float(latest["Volume_line"]),
+                            "PER": t_per,
+                            "PBR": t_pbr,
                         }
                     )
 
@@ -1260,6 +1332,8 @@ def start_100b_dashboard():
                             "RSI": float(item.get("RSI", 0)),
                             "ST": float(item.get("Stoch %K", 0)),
                             "거래량%": item.get("거래량 비율", "0%"),
+                            "PER": float(item.get("PER", 0)),
+                            "PBR": float(item.get("PBR", 0)),
                         }
                     )
                 df_export = pd.DataFrame(export_dl)
@@ -1275,11 +1349,12 @@ def start_100b_dashboard():
                         use_container_width=True,
                     )
 
-                col_ratio_tab1 = [0.9, 2, 1.5, 2.5, 2, 1.5, 1.2, 1.2, 1.3, 1, 1, 1.5]
+                # 🔥 탭 1 넓이 조율 (PER, PBR 열 2개 추가)
+                col_ratio_tab1 = [0.8, 1.5, 1.2, 2.0, 1.6, 1.3, 1.0, 1.0, 1.0, 0.8, 0.8, 1.2, 0.8, 0.8]
                 h_cols = st.columns(col_ratio_tab1)
                 headers = [
                     "순번", "선택", "티커", "종목명", "섹터", "현재가", 
-                    "1년고", "1년저", "고저밴드", "RSI", "ST", "거래량%",
+                    "1년고", "1년저", "고저밴드", "RSI", "ST", "거래량%", "PER", "PBR"
                 ]
                 for i, h in enumerate(headers):
                     h_cols[i].write(f"**{h}**")
@@ -1340,6 +1415,8 @@ def start_100b_dashboard():
                         cols[9].write(str(item.get("RSI", 0)))
                         cols[10].write(str(item.get("Stoch %K", 0)))
                         cols[11].write(item.get("거래량 비율", "0%"))
+                        cols[12].write(f"{item.get('PER', 0):.2f}" if item.get("PER", 0) > 0 else "-")
+                        cols[13].write(f"{item.get('PBR', 0):.2f}" if item.get("PBR", 0) > 0 else "-")
                         st.divider()
 
                 sel_tk = st.session_state["selected_ticker"]
@@ -1704,9 +1781,9 @@ def start_100b_dashboard():
                         search_term = custom_input.strip()
                         search_term_upper = search_term.upper()
                         
-                        # 🔥 수정된 부분: KRX 전체 2500개 딕셔너리 호출 (0.001초 소요)
-                        rev_map_kr = get_krx_full_search_map() # {"삼성전자": "005930.KS"}
-                        name_map_kr = {v: k for k, v in rev_map_kr.items()} # {"005930.KS": "삼성전자"}
+                        # 🔥 KRX 전체 2500개 딕셔너리 호출
+                        rev_map_kr = get_krx_full_search_map() 
+                        name_map_kr = {v: k for k, v in rev_map_kr.items()} 
                         
                         name_map_us = get_market_database("미국")
                         rev_map_us = {v: k for k, v in name_map_us.items()}
