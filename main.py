@@ -929,10 +929,6 @@ def start_100b_dashboard():
                     vol_n = st.number_input("기준(N봉)", 1, 100, 20, key="k_vol_n")
             with st.container(border=True):
                 st.markdown(
-                    '<div class="inline-label" style="margin-bottom: 5px;">외인/기관 (M일 중 N일 매수)</div>',
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
                     '<div class="inline-label" style="margin-bottom: 5px;">외인/기관 (M일 중 N일 매수 + 거래비중)</div>',
                     unsafe_allow_html=True,
                 )
