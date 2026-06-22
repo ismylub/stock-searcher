@@ -15,9 +15,7 @@ from io import StringIO
 import xml.etree.ElementTree as ET
 import difflib
 import json
-from krx_data import get_market_database_krx, get_krx_price_table, get_krx_full_search_map
 from streamlit_gsheets import GSheetsConnection
-from pykrx import stock
 
 # =======================================================================
 # 🛡️ IP 차단 방지 글로벌 설정
@@ -189,69 +187,55 @@ def fetch_watchlist_data(tickers):
             
     return tech_map
 
-
 # =======================================================================
-# 🔥 핵심 데이터 수집 엔진 (KRX 연동 및 펀더멘털)
+# 🔥 핵심 데이터 수집 엔진 (Google Sheets 연동으로 초고속 진화!)
 # =======================================================================
-@st.cache_data(ttl=86400, show_spinner=False)
-def get_krx_fundamentals():
-    """KRX 전 종목의 PER, PBR 데이터 수집 (캐시 오염 방지 적용)"""
-    now_kst = datetime.datetime.now(pytz.timezone("Asia/Seoul"))
-    for i in range(7):
-        target_date = (now_kst - datetime.timedelta(days=i)).strftime("%Y%m%d")
-        try:
-            kospi_fund = stock.get_market_fundamental(target_date, market="KOSPI")
-            if not kospi_fund.empty:
-                kosdaq_fund = stock.get_market_fundamental(target_date, market="KOSDAQ")
-                fund_df = pd.concat([kospi_fund, kosdaq_fund])
-                
-                fund_dict = {}
-                for ticker, row in fund_df.iterrows():
-                    fund_dict[str(ticker).zfill(6)] = {
-                        "PER": float(row["PER"]) if pd.notna(row["PER"]) else 0.0,
-                        "PBR": float(row["PBR"]) if pd.notna(row["PBR"]) else 0.0
-                    }
-                return fund_dict
-        except Exception:
-            continue
-            
-    # 데이터를 못 가져왔을 때 빈 캐시가 저장되는 것을 막기 위해 캐시 삭제
-    get_krx_fundamentals.clear()
-    return {}
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_krx_sheet_data():
+    """구글 시트(KRX_DATA)에서 1000개 종목 가치지표를 1초만에 불러옵니다."""
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    try:
+        df = conn.read(worksheet="KRX_DATA", ttl=3600)
+        if df.empty: return {}
+        
+        krx_dict = {}
+        for _, row in df.iterrows():
+            ticker = str(row.get("Ticker", ""))
+            if ticker:
+                krx_dict[ticker] = {
+                    "Name": str(row.get("Name", "")),
+                    "PER": float(row.get("PER", 0.0)) if pd.notna(row.get("PER", 0.0)) else 0.0,
+                    "PBR": float(row.get("PBR", 0.0)) if pd.notna(row.get("PBR", 0.0)) else 0.0,
+                    "Foreigner": float(row.get("Foreigner", 0.0)) if pd.notna(row.get("Foreigner", 0.0)) else 0.0,
+                }
+        return krx_dict
+    except Exception as e:
+        st.error(f"구글 시트 연동 에러 (KRX_DATA 시트가 없거나 권한 확인 필요): {e}")
+        return {}
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def get_krx_foreign_rate():
-    """KRX 전 종목의 외국인 지분율(보유율) 데이터 수집 (캐시 오염 방지 적용)"""
-    now_kst = datetime.datetime.now(pytz.timezone("Asia/Seoul"))
-    for i in range(7):
-        target_date = (now_kst - datetime.timedelta(days=i)).strftime("%Y%m%d")
-        try:
-            kospi_df = stock.get_exhaustion_rates_of_foreign_investment(target_date, market="KOSPI")
-            if not kospi_df.empty:
-                kosdaq_df = stock.get_exhaustion_rates_of_foreign_investment(target_date, market="KOSDAQ")
-                fund_df = pd.concat([kospi_df, kosdaq_df])
-                
-                rate_dict = {}
-                for ticker, row in fund_df.iterrows():
-                    rate_dict[str(ticker).zfill(6)] = float(row.get("지분율", 0.0))
-                return rate_dict
-        except Exception:
-            continue
-            
-    # 데이터를 못 가져왔을 때 빈 캐시가 저장되는 것을 막기 위해 캐시 삭제
-    get_krx_foreign_rate.clear()
-    return {}
+def get_krx_full_search_map():
+    """관심종목 검색용 맵 구축 (pykrx 대신 빠르고 안정적인 fdr 사용)"""
+    try:
+        df = fdr.StockListing('KRX')
+        df = df[~df['Name'].str.contains('스팩|우B|우$|우선주', regex=True, na=False)]
+        search_map = {}
+        for _, row in df.iterrows():
+            code = str(row["Code"]).zfill(6)
+            mkt = str(row.get("Market", ""))
+            suffix = ".KS" if "KOSPI" in mkt.upper() else ".KQ"
+            search_map[row["Name"]] = f"{code}{suffix}"
+        return search_map
+    except Exception:
+        return {}
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_market_database(market_type):
     if "한국" in market_type:
-        ticker_map = get_market_database_krx(market_type)
-        if ticker_map:
-            return ticker_map
-        return {
-            "005930.KS": "삼성전자", "000660.KS": "SK하이닉스", "373220.KS": "LG에너지솔루션",
-            "207940.KS": "삼성바이오로직스", "005380.KS": "현대차", "000270.KS": "기아"
-        }
+        krx_data = fetch_krx_sheet_data()
+        if krx_data:
+            return {k: v["Name"] for k, v in krx_data.items()}
+        return {"005930.KS": "삼성전자", "000660.KS": "SK하이닉스"}
     else:
         ticker_map = {}
         try:
@@ -612,7 +596,7 @@ def sync_market_sectors_v8(market_type):
                 val = "유틸리티"
             elif any(x in n for x in ["리츠", "부동산", "인프라"]):
                 val = "부동산"
-        final_map[tk] = val
+            final_map[tk] = val
 
     if changed:
         save_sector_db(db)
@@ -1048,7 +1032,7 @@ def start_100b_dashboard():
                 st.info("미국 시장은 현재 기술적 분석 필터만 제공됩니다.")
 
             search_btn = scan_action_placeholder.button(
-                "🚀 500종목 1년치 초고속 스캔 (실행)",
+                "🚀 글로벌 데이터 초고속 스캔 (실행)",
                 use_container_width=True,
                 type="primary",
             )
@@ -1056,7 +1040,7 @@ def start_100b_dashboard():
             if search_btn:
                 st.session_state["selected_ticker"] = "NONE"
                 with st.spinner(
-                    f"글로벌 데이터 1년치 스캔 중... (무거운 실적 수집 제거로 초고속!)"
+                    f"글로벌 데이터 1년치 스캔 중... (구글 시트 연동으로 초고속!)"
                 ):
                     db = build_database(market, timeframe)
 
@@ -1064,8 +1048,7 @@ def start_100b_dashboard():
                     f"가치 지표 및 섹터 DB 동기화 중..."
                 ):
                     sector_map = sync_market_sectors_v8(market)
-                    krx_fundamentals = get_krx_fundamentals() if "한국" in market else {}
-                    krx_foreign_rates = get_krx_foreign_rate() if "한국" in market else {}
+                    krx_sheet_data = fetch_krx_sheet_data() if "한국" in market else {}
 
                 matched_stocks, debug_list = {}, []
                 name_map = get_market_database(market)
@@ -1105,13 +1088,12 @@ def start_100b_dashboard():
                     if len(df) < 60:
                         continue
                         
-                    # 🔥 가치 지표 및 외국인 지분율 필터링 (한국 시장만 해당)
-                    t_foreign_rate = 0.0
+                    # 🔥 구글 시트에서 가져온 가치 지표 및 외국인 지분율 필터링 (한국 시장만 해당)
+                    t_per, t_pbr, t_foreign_rate = 0.0, 0.0, 0.0
                     if "한국" in market:
-                        code = ticker.split(".")[0]
-                        t_per = krx_fundamentals.get(code, {}).get("PER", 0.0)
-                        t_pbr = krx_fundamentals.get(code, {}).get("PBR", 0.0)
-                        t_foreign_rate = krx_foreign_rates.get(code, 0.0)
+                        t_per = krx_sheet_data.get(ticker, {}).get("PER", 0.0)
+                        t_pbr = krx_sheet_data.get(ticker, {}).get("PBR", 0.0)
+                        t_foreign_rate = krx_sheet_data.get(ticker, {}).get("Foreigner", 0.0)
                         
                         if per_cond > 0 and (t_per <= 0 or t_per > per_cond):
                             continue
@@ -1282,12 +1264,6 @@ def start_100b_dashboard():
                         if recent_max_vol < (bg_max * 1.5):
                             continue
 
-                    t_per, t_pbr = 0.0, 0.0
-                    if "한국" in market:
-                        code = ticker.split(".")[0]
-                        t_per = krx_fundamentals.get(code, {}).get("PER", 0.0)
-                        t_pbr = krx_fundamentals.get(code, {}).get("PBR", 0.0)
-
                     matched_stocks[ticker] = df
                     debug_list.append(
                         {
@@ -1457,7 +1433,6 @@ def start_100b_dashboard():
                         cols[9].write(str(item.get("RSI", 0)))
                         cols[10].write(str(item.get("Stoch %K", 0)))
                         cols[11].write(item.get("거래량 비율", "0%"))
-                        # 🔥 하이픈(-)이 마크다운 점(•)으로 변환되는 현상을 "N/A" 로 수정하여 완벽 해결
                         cols[12].write(f"{item.get('PER', 0):.2f}" if item.get("PER", 0) > 0 else "N/A")
                         cols[13].write(f"{item.get('PBR', 0):.2f}" if item.get("PBR", 0) > 0 else "N/A")
                         cols[14].write(f"{item.get('외인지분', 0):.2f}%" if "한국" in c_m and item.get("외인지분", 0) > 0 else "N/A")
@@ -1471,12 +1446,10 @@ def start_100b_dashboard():
                     )
 
                     if "한국" in c_m:
-                        krx_fundamentals_anal = get_krx_fundamentals()
-                        krx_foreign_rates_anal = get_krx_foreign_rate()
-                        code_anal = sel_tk.split(".")[0]
-                        f_per = krx_fundamentals_anal.get(code_anal, {}).get("PER", 0.0)
-                        f_pbr = krx_fundamentals_anal.get(code_anal, {}).get("PBR", 0.0)
-                        f_fr = krx_foreign_rates_anal.get(code_anal, 0.0)
+                        krx_sheet_anal = fetch_krx_sheet_data()
+                        f_per = krx_sheet_anal.get(sel_tk, {}).get("PER", 0.0)
+                        f_pbr = krx_sheet_anal.get(sel_tk, {}).get("PBR", 0.0)
+                        f_fr = krx_sheet_anal.get(sel_tk, {}).get("Foreigner", 0.0)
                         
                         mc1, mc2, mc3 = st.columns(3)
                         mc1.metric("PER (KRX)", f"{f_per:.2f}" if f_per > 0 else "N/A")
@@ -1998,236 +1971,236 @@ def start_100b_dashboard():
                     tech_map = fetch_watchlist_data(tickers)
                     sector_map_watch = fetch_sectors_for_watchlist_v8(tickers)
 
-                    st.markdown("##### 🗂️ 포트폴리오 정렬 및 내보내기")
-                    sc1, sc2 = st.columns([2, 8])
-                    with sc1:
-                        sort_by = st.selectbox(
-                            "정렬 기준",
-                            [
-                                "1차매수 근접도(%)",
-                                "종목명",
-                                "현재가",
-                                "등록일 (최신순)",
-                                "고저밴드(%)",
-                                "RSI",
-                                "ST",
-                            ],
-                            label_visibility="collapsed",
-                        )
-                    with sc2:
-                        sort_order = st.radio(
-                            "정렬 방식",
-                            ["내림차순 (큰 값부터)", "오름차순 (작은 값부터)"],
-                            horizontal=True,
-                            label_visibility="collapsed",
-                        )
-                    st.write("")
-
-                    display_rows = []
-                    for idx, row in df_watch.iterrows():
-                        tk, nm, dt = row["Ticker"], row["Name"], row.get("Date", "N/A")
-                        tg1 = float(row["Target1"]) if "Target1" in row else 0.0
-                        tg2 = float(row["Target2"]) if "Target2" in row else 0.0
-
-                        price = tech_map.get(tk, {}).get("Price", 0)
-                        rsi = tech_map.get(tk, {}).get("RSI", 0)
-                        stoch = tech_map.get(tk, {}).get("ST", 0)
-                        y_high = tech_map.get(tk, {}).get("1YearHigh", 0)
-                        y_low = tech_map.get(tk, {}).get("1YearLow", 0)
-                        
-                        band_pos = 0
-                        if y_high > 0 and (y_high - y_low) > 0:
-                            band_pos = ((price - y_low) / (y_high - y_low)) * 100
-
-                        diff1_pct = (
-                            ((tg1 - price) / price) * 100
-                            if price > 0 and tg1 > 0
-                            else -9999
-                        )
-
-                        display_rows.append(
-                            {
-                                "tk": tk,
-                                "nm": nm,
-                                "dt": dt,
-                                "tg1": tg1,
-                                "tg2": tg2,
-                                "price": price,
-                                "rsi": rsi,
-                                "stoch": stoch,
-                                "band_pos": band_pos,
-                                "diff1_pct": diff1_pct,
-                                "sector": sector_map_watch.get(tk, "미분류"),
-                            }
-                        )
-
-                    rev = sort_order == "내림차순 (큰 값부터)"
-                    if sort_by == "종목명":
-                        display_rows.sort(key=lambda x: x["nm"], reverse=rev)
-                    elif sort_by == "등록일 (최신순)":
-                        display_rows.sort(key=lambda x: x["dt"], reverse=rev)
-                    elif sort_by == "현재가":
-                        display_rows.sort(key=lambda x: x["price"], reverse=rev)
-                    elif sort_by == "1차매수 근접도(%)":
-                        display_rows.sort(key=lambda x: x["diff1_pct"], reverse=rev)
-                    elif sort_by == "고저밴드(%)":
-                        display_rows.sort(key=lambda x: x["band_pos"], reverse=rev)
-                    elif sort_by == "RSI":
-                        display_rows.sort(key=lambda x: x["rsi"], reverse=rev)
-                    elif sort_by == "ST":
-                        display_rows.sort(key=lambda x: x["stoch"], reverse=rev)
-
-                    export_df = pd.DataFrame(display_rows)[
+                st.markdown("##### 🗂️ 포트폴리오 정렬 및 내보내기")
+                sc1, sc2 = st.columns([2, 8])
+                with sc1:
+                    sort_by = st.selectbox(
+                        "정렬 기준",
                         [
-                            "nm",
-                            "tk",
-                            "sector",
-                            "price",
-                            "tg1",
-                            "diff1_pct",
-                            "tg2",
-                            "band_pos",
-                            "rsi",
-                            "stoch",
-                            "dt",
-                        ]
-                    ]
-                    export_df.columns = [
-                        "종목명",
-                        "티커",
-                        "섹터",
-                        "현재가",
-                        "1차매수가",
-                        "1차매수_근접도(%)",
-                        "2차매수가",
-                        "고저밴드(%)",
-                        "RSI",
-                        "STOCH",
-                        "등록일",
-                    ]
-                    csv_data = export_df.to_csv(index=False).encode("utf-8-sig")
+                            "1차매수 근접도(%)",
+                            "종목명",
+                            "현재가",
+                            "등록일 (최신순)",
+                            "고저밴드(%)",
+                            "RSI",
+                            "ST",
+                        ],
+                        label_visibility="collapsed",
+                    )
+                with sc2:
+                    sort_order = st.radio(
+                        "정렬 방식",
+                        ["내림차순 (큰 값부터)", "오름차순 (작은 값부터)"],
+                        horizontal=True,
+                        label_visibility="collapsed",
+                    )
+                st.write("")
 
-                    e_col1, e_col2 = st.columns([8, 2])
-                    with e_col2:
-                        st.download_button(
-                            label="📥 엑셀(CSV) 내보내기",
-                            data=csv_data,
-                            file_name=f"watchlist_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
-                            mime="text/csv",
-                            use_container_width=True,
+                display_rows = []
+                for idx, row in df_watch.iterrows():
+                    tk, nm, dt = row["Ticker"], row["Name"], row.get("Date", "N/A")
+                    tg1 = float(row["Target1"]) if "Target1" in row else 0.0
+                    tg2 = float(row["Target2"]) if "Target2" in row else 0.0
+
+                    price = tech_map.get(tk, {}).get("Price", 0)
+                    rsi = tech_map.get(tk, {}).get("RSI", 0)
+                    stoch = tech_map.get(tk, {}).get("ST", 0)
+                    y_high = tech_map.get(tk, {}).get("1YearHigh", 0)
+                    y_low = tech_map.get(tk, {}).get("1YearLow", 0)
+                    
+                    band_pos = 0
+                    if y_high > 0 and (y_high - y_low) > 0:
+                        band_pos = ((price - y_low) / (y_high - y_low)) * 100
+
+                    diff1_pct = (
+                        ((tg1 - price) / price) * 100
+                        if price > 0 and tg1 > 0
+                        else -9999
+                    )
+
+                    display_rows.append(
+                        {
+                            "tk": tk,
+                            "nm": nm,
+                            "dt": dt,
+                            "tg1": tg1,
+                            "tg2": tg2,
+                            "price": price,
+                            "rsi": rsi,
+                            "stoch": stoch,
+                            "band_pos": band_pos,
+                            "diff1_pct": diff1_pct,
+                            "sector": sector_map_watch.get(tk, "미분류"),
+                        }
+                    )
+
+                rev = sort_order == "내림차순 (큰 값부터)"
+                if sort_by == "종목명":
+                    display_rows.sort(key=lambda x: x["nm"], reverse=rev)
+                elif sort_by == "등록일 (최신순)":
+                    display_rows.sort(key=lambda x: x["dt"], reverse=rev)
+                elif sort_by == "현재가":
+                    display_rows.sort(key=lambda x: x["price"], reverse=rev)
+                elif sort_by == "1차매수 근접도(%)":
+                    display_rows.sort(key=lambda x: x["diff1_pct"], reverse=rev)
+                elif sort_by == "고저밴드(%)":
+                    display_rows.sort(key=lambda x: x["band_pos"], reverse=rev)
+                elif sort_by == "RSI":
+                    display_rows.sort(key=lambda x: x["rsi"], reverse=rev)
+                elif sort_by == "ST":
+                    display_rows.sort(key=lambda x: x["stoch"], reverse=rev)
+
+                export_df = pd.DataFrame(display_rows)[
+                    [
+                        "nm",
+                        "tk",
+                        "sector",
+                        "price",
+                        "tg1",
+                        "diff1_pct",
+                        "tg2",
+                        "band_pos",
+                        "rsi",
+                        "stoch",
+                        "dt",
+                    ]
+                ]
+                export_df.columns = [
+                    "종목명",
+                    "티커",
+                    "섹터",
+                    "현재가",
+                    "1차매수가",
+                    "1차매수_근접도(%)",
+                    "2차매수가",
+                    "고저밴드(%)",
+                    "RSI",
+                    "STOCH",
+                    "등록일",
+                ]
+                csv_data = export_df.to_csv(index=False).encode("utf-8-sig")
+
+                e_col1, e_col2 = st.columns([8, 2])
+                with e_col2:
+                    st.download_button(
+                        label="📥 엑셀(CSV) 내보내기",
+                        data=csv_data,
+                        file_name=f"watchlist_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                    )
+
+                col_ratio_tab2 = [1.5, 0.8, 1, 1.0, 0.7, 0.7, 0.5, 0.5, 0.5, 1.7]
+                hc = st.columns(col_ratio_tab2)
+                hc[0].write("**종목명**")
+                hc[1].write("**등록일**")
+                hc[2].write("**섹터**")
+                hc[3].write("**현재가**")
+                hc[4].write("**1차매수**")
+                hc[5].write("**2차매수**")
+                hc[6].write("**고저**")
+                hc[7].write("**RSI**")
+                hc[8].write("**ST**")
+                hc[9].write("**관리(수정/삭제)**")
+                st.divider()
+
+                with st.container(height=600):
+                    for item in display_rows:
+                        tk, nm, dt = item["tk"], item["nm"], item["dt"]
+                        tg1, tg2, price = item["tg1"], item["tg2"], item["price"]
+                        rsi, stoch, band_pos = (
+                            item["rsi"],
+                            item["stoch"],
+                            item["band_pos"],
+                        )
+                        diff1_pct = item["diff1_pct"]
+
+                        cc = st.columns(col_ratio_tab2)
+                        cc[0].write(f"**{nm}**\n({tk})")
+                        cc[1].write(dt)
+                        cc[2].write(str(item.get("sector", "미분류"))[:12])
+
+                        price_str = (
+                            f"{price:,.0f}" if "KS" in tk or "KQ" in tk else f"{price:,.2f}"
                         )
 
-                    col_ratio_tab2 = [1.5, 0.8, 1, 1.0, 0.7, 0.7, 0.5, 0.5, 0.5, 1.7]
-                    hc = st.columns(col_ratio_tab2)
-                    hc[0].write("**종목명**")
-                    hc[1].write("**등록일**")
-                    hc[2].write("**섹터**")
-                    hc[3].write("**현재가**")
-                    hc[4].write("**1차매수**")
-                    hc[5].write("**2차매수**")
-                    hc[6].write("**고저**")
-                    hc[7].write("**RSI**")
-                    hc[8].write("**ST**")
-                    hc[9].write("**관리(수정/삭제)**")
-                    st.divider()
-
-                    with st.container(height=600):
-                        for item in display_rows:
-                            tk, nm, dt = item["tk"], item["nm"], item["dt"]
-                            tg1, tg2, price = item["tg1"], item["tg2"], item["price"]
-                            rsi, stoch, band_pos = (
-                                item["rsi"],
-                                item["stoch"],
-                                item["band_pos"],
-                            )
-                            diff1_pct = item["diff1_pct"]
-
-                            cc = st.columns(col_ratio_tab2)
-                            cc[0].write(f"**{nm}**\n({tk})")
-                            cc[1].write(dt)
-                            cc[2].write(str(item.get("sector", "미분류"))[:12])
-
-                            price_str = (
-                                f"{price:,.0f}" if "KS" in tk or "KQ" in tk else f"{price:,.2f}"
-                            )
-
-                            if price > 0:
-                                if tg1 > 0:
-                                    if price <= tg1 or diff1_pct >= -0.5:
-                                        cc[3].markdown(
-                                            f"<span style='background-color: #ff4b4b; color: white; font-weight: bold; padding: 3px 6px; border-radius: 4px;'>🚨 {price_str}</span>",
-                                            unsafe_allow_html=True,
-                                        )
-                                    elif diff1_pct >= -3.0:
-                                        cc[3].markdown(
-                                            f"<span style='background-color: #ffd700; color: black; font-weight: bold; padding: 3px 6px; border-radius: 4px;'>🎯 {price_str}</span>",
-                                            unsafe_allow_html=True,
-                                        )
-                                    else:
-                                        cc[3].write(price_str)
+                        if price > 0:
+                            if tg1 > 0:
+                                if price <= tg1 or diff1_pct >= -0.5:
+                                    cc[3].markdown(
+                                        f"<span style='background-color: #ff4b4b; color: white; font-weight: bold; padding: 3px 6px; border-radius: 4px;'>🚨 {price_str}</span>",
+                                        unsafe_allow_html=True,
+                                    )
+                                elif diff1_pct >= -3.0:
+                                    cc[3].markdown(
+                                        f"<span style='background-color: #ffd700; color: black; font-weight: bold; padding: 3px 6px; border-radius: 4px;'>🎯 {price_str}</span>",
+                                        unsafe_allow_html=True,
+                                    )
                                 else:
                                     cc[3].write(price_str)
                             else:
-                                cc[3].write("데이터 없음")
+                                cc[3].write(price_str)
+                        else:
+                            cc[3].write("데이터 없음")
 
-                            if tg1 > 0:
-                                color1, sign1 = (
-                                    ("#ff4b4b", "+")
-                                    if diff1_pct > 0
-                                    else ("#00bfff", "")
-                                )
-                                tg1_fmt = (
-                                    f"{tg1:,.0f}" if tg1 > 1000 else f"{tg1:,.2f}"
-                                )
-                                cc[4].markdown(
-                                    f"<span>{tg1_fmt}</span> <span style='color:{color1}; font-size:12px; font-weight:bold;'>({sign1}{diff1_pct:.2f}%)</span>",
-                                    unsafe_allow_html=True,
-                                )
-                            else:
-                                cc[4].write("0")
-
-                            tg2_fmt = f"{tg2:,.0f}" if tg2 > 1000 else f"{tg2:,.2f}"
-                            
-                            if tg2 > 0 and tg1 > 0 and price < tg1 and price > 0:
-                                diff2_pct = ((tg2 - price) / price) * 100
-                                color2, sign2 = (
-                                    ("#ff4b4b", "+")
-                                    if diff2_pct > 0
-                                    else ("#00bfff", "")
-                                )
-                                cc[5].markdown(
-                                    f"<span>{tg2_fmt}</span> <span style='color:{color2}; font-size:12px; font-weight:bold;'>({sign2}{diff2_pct:.2f}%)</span>",
-                                    unsafe_allow_html=True,
-                                )
-                            else:
-                                cc[5].write(tg2_fmt)
-
-                            cc[6].write(f"{band_pos:.1f}%")
-                            cc[7].write(f"{rsi}")
-                            cc[8].write(f"{stoch}")
-
-                            mc1, mc2, mc3, mc4 = cc[9].columns([1, 1, 0.8, 0.8])
-                            new_tg1 = mc1.number_input(
-                                "1차",
-                                value=tg1,
-                                key=f"edit1_{tk}",
-                                label_visibility="collapsed",
+                        if tg1 > 0:
+                            color1, sign1 = (
+                                ("#ff4b4b", "+")
+                                if diff1_pct > 0
+                                else ("#00bfff", "")
                             )
-                            new_tg2 = mc2.number_input(
-                                "2차",
-                                value=tg2,
-                                key=f"edit2_{tk}",
-                                label_visibility="collapsed",
+                            tg1_fmt = (
+                                f"{tg1:,.0f}" if tg1 > 1000 else f"{tg1:,.2f}"
                             )
-                            if mc3.button("수정", key=f"btn_edit_{tk}"):
-                                update_target_price(tk, new_tg1, new_tg2)
-                                st.success("수정 완료!")
-                                st.rerun()
-                            if mc4.button("삭제", key=f"btn_del_{tk}"):
-                                delete_from_watchlist(tk)
-                                st.error("삭제 완료!")
-                                st.rerun()
-                            st.divider()
+                            cc[4].markdown(
+                                f"<span>{tg1_fmt}</span> <span style='color:{color1}; font-size:12px; font-weight:bold;'>({sign1}{diff1_pct:.2f}%)</span>",
+                                unsafe_allow_html=True,
+                            )
+                        else:
+                            cc[4].write("0")
+
+                        tg2_fmt = f"{tg2:,.0f}" if tg2 > 1000 else f"{tg2:,.2f}"
+                        
+                        if tg2 > 0 and tg1 > 0 and price < tg1 and price > 0:
+                            diff2_pct = ((tg2 - price) / price) * 100
+                            color2, sign2 = (
+                                ("#ff4b4b", "+")
+                                if diff2_pct > 0
+                                else ("#00bfff", "")
+                            )
+                            cc[5].markdown(
+                                f"<span>{tg2_fmt}</span> <span style='color:{color2}; font-size:12px; font-weight:bold;'>({sign2}{diff2_pct:.2f}%)</span>",
+                                unsafe_allow_html=True,
+                            )
+                        else:
+                            cc[5].write(tg2_fmt)
+
+                        cc[6].write(f"{band_pos:.1f}%")
+                        cc[7].write(f"{rsi}")
+                        cc[8].write(f"{stoch}")
+
+                        mc1, mc2, mc3, mc4 = cc[9].columns([1, 1, 0.8, 0.8])
+                        new_tg1 = mc1.number_input(
+                            "1차",
+                            value=tg1,
+                            key=f"edit1_{tk}",
+                            label_visibility="collapsed",
+                        )
+                        new_tg2 = mc2.number_input(
+                            "2차",
+                            value=tg2,
+                            key=f"edit2_{tk}",
+                            label_visibility="collapsed",
+                        )
+                        if mc3.button("수정", key=f"btn_edit_{tk}"):
+                            update_target_price(tk, new_tg1, new_tg2)
+                            st.success("수정 완료!")
+                            st.rerun()
+                        if mc4.button("삭제", key=f"btn_del_{tk}"):
+                            delete_from_watchlist(tk)
+                            st.error("삭제 완료!")
+                            st.rerun()
+                        st.divider()
 
 if __name__ == "__main__":
     if "streamlit" not in sys.modules and not sys.argv[0].endswith("streamlit"):
