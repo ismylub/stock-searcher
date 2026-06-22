@@ -5,6 +5,5 @@ plotly
 ta
 pandas
 finance-datareader
-pykrx
 requests
 st-gsheets-connection
