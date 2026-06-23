@@ -551,7 +551,7 @@ def start_100b_dashboard():
                 
                 # 🌟 [헤더 텍스트 변경: 한국=외인%, 미국=기관%]
                 fr_header_text = "외인지분(%)" if c_m == "한국" else "기관지분(%)"
-                col_ratio_tab1 = [0.7, 1.3, 1.3, 1.8, 1.2, 1.3, 1.3, 1.3, 1.0, 1.0, 1.5]
+                col_ratio_tab1 = [0.7, 1.5, 1.3, 1.8, 1.2, 1.2, 1.2, 1.2, 1.0, 1.0, 1.5]
                 h_cols = st.columns(col_ratio_tab1)
                 for i, h in enumerate(["순번", "선택", "티커", "종목명", "섹터", "현재가", "1년고", "1년저", "고저밴드", fr_header_text, "수급추세"]): 
                     h_cols[i].write(f"**{h}**")
