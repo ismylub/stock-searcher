@@ -883,63 +883,61 @@ def start_100b_dashboard():
                             res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
                             soup = BeautifulSoup(res.text, 'html.parser')
                             
-                            index_name = "해당 자산운용사 자체 지수 또는 액티브 운용"
+                            index_name = "자산운용사 자체 지수 또는 액티브 운용"
                             fee = "알 수 없음"
                             
-                            # 어려운 법적 설명 대신, 표에서 '기초지수'와 '총보수(수수료)'만 핵심 추출!
-                            for tr in soup.find_all('tr'):
-                                th = tr.find('th')
-                                if th:
-                                    if "기초지수" in th.text:
-                                        td = tr.find('td')
-                                        if td: index_name = td.text.strip().replace("\n", " ")
-                                    if "총보수" in tr.text:
-                                        td = tr.find('td')
-                                        if td: fee = td.text.strip()
+                            # 🎯 [수정됨] 엉뚱한 숫자 안 가져오게 '바로 옆 칸(td)'을 정확히 지목!
+                            for th in soup.find_all('th'):
+                                if th.text and "기초지수" in th.text:
+                                    td = th.find_next_sibling('td')
+                                    if td: index_name = td.text.strip().replace("\n", " ")
+                                if th.text and "총보수" in th.text:
+                                    td = th.find_next_sibling('td')
+                                    if td: fee = td.text.strip()
                                         
-                            guide = f"**💡 무엇에 투자하나요? (추종 지수)**\n- **{index_name}**의 움직임에 따라 수익률이 결정됩니다.\n\n"
-                            guide += f"**💰 펀드 운용 수수료 (총보수)**\n- **{fee}**\n\n"
-                            guide += f"**📌 종목명 기초 상식:**\n- **{etf_name}** (앞의 영어는 자산운용사 브랜드명이고, 뒤는 투자 섹터를 의미합니다.)"
+                            guide = f"**💡 무엇에 투자하나요? (추종 지수)**\n- **{index_name}**의 움직임을 똑같이 따라가도록 설계된 상품입니다.\n\n"
+                            guide += f"**💰 펀드 운용 수수료 (총보수)**\n- **{fee}** (1년 동안 떼어가는 수수료입니다)\n\n"
+                            guide += f"**📌 종목명 기초 상식:**\n- **{etf_name}** (앞의 영어는 운용사 브랜드명, 뒤는 투자 섹터를 의미합니다.)"
                             
-                            if "레버리지" in etf_name or "인버스" in etf_name or "2X" in etf_name:
+                            if any(x in etf_name for x in ["레버리지", "인버스", "2X"]):
                                 guide += "\n\n⚠️ **초보자 주의:** 이 상품은 지수 변동성을 2배 이상으로 추종하거나 반대로 움직이는 고위험 상품입니다. 원금이 쉽게 녹을 수 있으니 단기 투자용으로만 접근하세요."
                             return guide
                             
                         else:
-                            # 미국 ETF는 야후 에러를 피하기 위해 우리가 만든 직관적인 한글 이름(n_map)을 100% 활용!
+                            # 🎯 [수정됨] 대충 만든 티 싹 지운, VIP 고객 맞춤형 족집게 설명!
                             theme = etf_name
-                            guide = f"**💡 무엇에 투자하나요? (핵심 테마)**\n- 이 ETF는 미국 시장의 **[{theme}]**에 집중 투자하는 상품입니다.\n\n"
+                            desc = ""
+                            
+                            if "S&P 500" in theme:
+                                desc = "미국 주식 시장을 이끄는 상위 500개 대형 우량주에 한 번에 분산 투자하는 가장 완벽한 펀드입니다. 워렌 버핏이 '내가 죽으면 아내에게 이 펀드를 사주라'고 유언했을 정도로 검증된 세계 1등 상품입니다."
+                            elif "NASDAQ 100" in theme or "나스닥" in theme:
+                                desc = "애플, 마이크로소프트, 엔비디아 등 세상을 바꾸는 미국 최고의 혁신 기술주 100개에 집중 투자합니다. 4차 산업혁명의 가장 큰 수혜를 받는 펀드입니다."
+                            elif "배당" in theme or "인컴" in theme:
+                                desc = "마르지 않는 현금 파이프라인(월배당/분기배당)을 만들기 위한 필수 펀드입니다. 주가가 떨어져도 배당금이 나오기 때문에 멘탈을 지키기 아주 좋습니다."
+                            elif "반도체" in theme:
+                                desc = "AI 시대의 쌀이라고 불리는 '반도체' 생태계(엔비디아, TSMC, ASML 등) 글로벌 최강 기업들을 장바구니에 싹쓸이하여 담아둔 핵심 테마입니다."
+                            elif "채권" in theme or "국채" in theme:
+                                desc = "주식 시장의 폭락을 방어하고 내 계좌의 안정성을 높이는 든든한 방패입니다. 향후 금리가 내려가면 채권 가격이 오르면서 짭짤한 시세 차익도 누릴 수 있습니다."
+                            elif "비트코인" in theme:
+                                desc = "복잡하게 코인 거래소 지갑을 만들 필요 없이, 미국 주식 계좌에서 가장 안전하고 합법적으로 비트코인 상승에 편승할 수 있는 혁신적인 상품입니다."
+                            elif "2배" in theme or "3배" in theme or "레버리지" in theme:
+                                target = theme.replace(" 2배", "").replace(" 3배", "").replace(" 레버리지", "")
+                                desc = f"[{target}] 섹터가 1% 오를 때 내 수익은 2배~3배로 폭발하는 '초고위험 야수의 심장' 상품입니다."
+                            elif "인버스" in theme:
+                                target = theme.replace(" 인버스 (-1배)", "").replace(" 인버스 (-2배)", "").replace(" 인버스 (-3배)", "")
+                                desc = f"[{target}] 주가가 '하락'할 때 오히려 내 계좌는 돈을 버는 공매도(숏) 성격의 하락장 방어용 상품입니다."
+                            else:
+                                desc = f"글로벌 자본이 몰리는 **[{theme}]** 산업 전체를 통째로 사버리는 상품입니다. 개별 기업이 망할 위험을 피하면서 해당 산업의 성장을 그대로 누릴 수 있습니다."
+
+                            guide = f"**💡 핵심 족집게 브리핑 ({theme})**\n- {desc}\n\n"
                             
                             if "2배" in theme or "3배" in theme or "인버스" in theme:
-                                guide += "⚠️ **초보자 주의사항:**\n이 종목은 지수 변동성을 2~3배로 추종하거나 하락에 배팅하는 **특수 목적(레버리지/고위험)** 종목입니다. 장기 투자(존버)보다는 단기적인 시장 추세 대응용으로만 접근하세요."
+                                guide += "⚠️ **절대 주의사항:**\n변동성이 극대화된 **초고위험** 종목입니다. 주가가 횡보만 해도 '음의 복리' 효과로 원금이 녹아내립니다. 절대 장기 투자(존버) 하지 마시고 단기 치고 빠지기용으로만 쓰세요!"
                             else:
-                                guide += "✅ **초보자 가이드:**\n전 세계 투자자들이 가장 많이 거래하는 글로벌 대표 우량 ETF 중 하나입니다. 개별 주식을 고르기 어려울 때 시장 전체나 특정 산업의 성장에 쉽게 올라탈 수 있는 훌륭한 뼈대 종목입니다."
+                                guide += "✅ **전문가 팁:**\n어떤 개별 주식을 사야 할지 머리 아플 때 가장 현명한 선택지입니다. 매달 월급날마다 적립식으로 모아가면 10년 뒤 든든한 자산이 되어줄 뼈대 종목입니다."
                             return guide
                     except Exception:
-                        return "초보자 가이드를 불러오는 중 일시적인 오류가 발생했습니다."
-
-                sel_tk = st.session_state["selected_ticker"]
-                if sel_tk != "NONE":
-                    st.divider()
-                    st.subheader(f"📊 {sel_tk} ({n_map.get(sel_tk, '')}) 종합 차트 및 보조지표 분석")
-
-                    if c_a == "일반 주식":
-                        sheet_anal = fetch_sheet_data("KRX_DATA" if c_m == "한국" else "US_DATA")
-                        f_per, f_pbr, f_fr = sheet_anal.get(sel_tk, {}).get("PER", 0.0), sheet_anal.get(sel_tk, {}).get("PBR", 0.0), sheet_anal.get(sel_tk, {}).get("Foreigner", 0.0)
-                        mc1, mc2, mc3 = st.columns(3)
-                        mc1.metric("PER (시트)", f"{f_per:.2f}" if f_per > 0 else "N/A")
-                        mc2.metric("PBR (시트)", f"{f_pbr:.2f}" if f_pbr > 0 else "N/A")
-                        mc3.metric("외국인/기관 보유율", f"{f_fr:.2f}%" if f_fr > 0 else "N/A")
-                        st.divider()
-                    else:
-                        # 🌟 ETF 초보자 친화적 설명 영역
-                        with st.spinner("초보자용 ETF 가이드 불러오는 중..."):
-                            etf_name_kr = n_map.get(sel_tk, sel_tk)
-                            etf_desc = fetch_etf_beginner_guide(sel_tk, c_m, etf_name_kr)
-                        st.info(f"**📖 ETF 1분 완전 정복 가이드**\n\n{etf_desc}")
-                        st.divider()
-
-                    tf = st.radio("시간 축", ["일봉", "주봉", "60분봉"], horizontal=True, key="time_frame_radio")
+                        return "가이드 데이터를 구성하는 중 오류가 발생했습니다."
                     df = fetch_specific_timeframe_data(sel_tk, tf)
 
                     if df.empty: st.error("데이터 로드 실패")
