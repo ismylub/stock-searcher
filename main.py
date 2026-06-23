@@ -879,7 +879,6 @@ def start_100b_dashboard():
                     tip = ""
                     
                     if market == "한국":
-                        # 🇰🇷 한국 ETF: 뻔한 설명 대신 상황별 '신박한' 활용법 매핑
                         if "머니마켓" in theme or "CD금리" in theme or "KOFR" in theme or "단기채" in theme:
                             desc = "은행의 '파킹통장'처럼, 하루만 넣어둬도 매일매일 이자가 붙는 현금 보관용 최고 안전 피난처입니다."
                             tip = "✅ **신박한 활용법:** 당장 살 주식이 없거나 폭락장이 예상될 때, 예수금을 그냥 놀리지 말고 여기에 넣어두면 쏠쏠한 꽁돈(이자)이 생깁니다!"
@@ -920,7 +919,6 @@ def start_100b_dashboard():
                         return f"**💡 이건 어떤 종목인가요? (핵심 요약)**\n- {desc}\n\n{tip}"
 
                     else:
-                        # 🇺🇸 미국 ETF: 글로벌 시각의 신박한 활용법 매핑
                         if "S&P 500" in theme: desc = "미국 우량 대형주 500개에 투자하는 세계 1위 펀드입니다. 워렌 버핏이 가장 강력하게 추천하는 '근본' 상품입니다."
                         elif "NASDAQ 100" in theme or "나스닥" in theme: desc = "애플, 엔비디아 등 미국을 이끄는 100개 혁신 기술주에 집중합니다. 시대의 흐름을 타는 가장 빠른 방법입니다."
                         elif "배당" in theme or "인컴" in theme: desc = "주가 상승은 물론 따박따박 들어오는 배당금까지 챙기는 상품입니다. 마르지 않는 현금 파이프라인을 만들 때 필수입니다."
@@ -941,6 +939,82 @@ def start_100b_dashboard():
                             tip = "✅ **신박한 활용법:** 개별 기업의 갑작스러운 '상장폐지'나 '오너 리스크'는 완벽하게 피하면서, 해당 산업의 '성장 과실'만 쏙쏙 빼먹을 수 있는 가장 영악한 투자법입니다."
 
                         return f"**💡 이건 어떤 종목인가요? (핵심 요약)**\n- {desc}\n\n{tip}"
+
+                sel_tk = st.session_state["selected_ticker"]
+                if sel_tk != "NONE":
+                    st.divider()
+                    st.subheader(f"📊 {sel_tk} ({n_map.get(sel_tk, '')}) 종합 분석")
+
+                    if c_a == "일반 주식":
+                        sheet_anal = fetch_sheet_data("KRX_DATA" if c_m == "한국" else "US_DATA")
+                        f_per, f_pbr, f_fr = sheet_anal.get(sel_tk, {}).get("PER", 0.0), sheet_anal.get(sel_tk, {}).get("PBR", 0.0), sheet_anal.get(sel_tk, {}).get("Foreigner", 0.0)
+                        mc1, mc2, mc3 = st.columns(3)
+                        mc1.metric("PER (시트)", f"{f_per:.2f}" if f_per > 0 else "N/A")
+                        mc2.metric("PBR (시트)", f"{f_pbr:.2f}" if f_pbr > 0 else "N/A")
+                        mc3.metric("외국인/기관 보유율", f"{f_fr:.2f}%" if f_fr > 0 else "N/A")
+                        st.divider()
+                    else:
+                        with st.spinner("전문가용 ETF 브리핑 불러오는 중..."):
+                            etf_name_kr = n_map.get(sel_tk, sel_tk)
+                            etf_desc = fetch_etf_beginner_guide(sel_tk, c_m, etf_name_kr)
+                        st.info(f"**📖 ETF 1분 족집게 레포트**\n\n{etf_desc}")
+                        st.divider()
+
+                    tf = st.radio("시간 축", ["일봉", "주봉", "60분봉"], horizontal=True, key="time_frame_radio")
+                    
+                    df = fetch_specific_timeframe_data(sel_tk, tf)
+                    if df.empty: st.error("데이터 로드 실패")
+                    else:
+                        active_subplots = []
+                        if rsi_show == "적용": active_subplots.append("RSI")
+                        if stoch_cond != "조건없음": active_subplots.append("STOCH")
+                        if macd_cond != "조건없음": active_subplots.append("MACD")
+
+                        total_rows = 1 + len(active_subplots)
+                        row_heights = [1.0] if total_rows == 1 else [0.5] + [0.5 / len(active_subplots)] * len(active_subplots)
+                        specs = [[{"secondary_y": True}]] + [[{}]] * len(active_subplots)
+                        fig = make_subplots(rows=total_rows, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=row_heights, specs=specs)
+                        idx = df.index.astype(str) if tf == "60분봉" else df.index
+
+                        fig.add_trace(go.Candlestick(x=idx, open=df["Open_line"], high=df["High_line"], low=df["Low_line"], close=df["Close_line"], name="캔들"), row=1, col=1)
+                        vc = ["rgba(255,50,50,0.8)" if c >= o else "rgba(50,50,255,0.8)" for o, c in zip(df["Open_line"], df["Close_line"])]
+                        fig.add_trace(go.Bar(x=idx, y=df["Volume_line"], marker_color=vc, name="거래량"), row=1, col=1, secondary_y=True)
+
+                        if bb_cond != "조건없음" or st.session_state.get("k_bb_sq"):
+                            fig.add_trace(go.Scatter(x=idx, y=df["BB_High"], line=dict(color="#8A2BE2", dash="dot"), name="BB상단"), row=1, col=1)
+                            fig.add_trace(go.Scatter(x=idx, y=df["BB_Low"], line=dict(color="#8A2BE2", dash="dot"), fill="tonexty", fillcolor="rgba(138,43,226,0.05)", name="BB하단"), row=1, col=1)
+
+                        if ichi_cond != "조건없음":
+                            fig.add_trace(go.Scatter(x=idx, y=df["Ichimoku_SpanA"], line=dict(color="#00FA9A", width=1), name="일목A"), row=1, col=1)
+                            fig.add_trace(go.Scatter(x=idx, y=df["Ichimoku_SpanB"], line=dict(color="#FA8072", width=1), fill="tonexty", fillcolor="rgba(250,128,114,0.1)", name="일목B"), row=1, col=1)
+                        if array_cond != "조건없음":
+                            fig.add_trace(go.Scatter(x=idx, y=df["Close_line"].rolling(5).mean(), line=dict(color="#FF1493", width=1.5), name="5이평"), row=1, col=1)
+                            fig.add_trace(go.Scatter(x=idx, y=df["Close_line"].rolling(20).mean(), line=dict(color="#FFD700", width=1.5), name="20이평"), row=1, col=1)
+                            fig.add_trace(go.Scatter(x=idx, y=df["Close_line"].rolling(60).mean(), line=dict(color="#00BFFF", width=1.5), name="60이평"), row=1, col=1)
+
+                        current_row = 2
+                        for subplot in active_subplots:
+                            if subplot == "RSI":
+                                fig.add_trace(go.Scatter(x=idx, y=df["RSI"], line=dict(color="purple"), name="RSI"), row=current_row, col=1)
+                                fig.add_hline(y=70, line_dash="dot", line_color="orange", row=current_row, col=1); fig.add_hline(y=30, line_dash="dot", line_color="dodgerblue", row=current_row, col=1)
+                                fig.update_yaxes(title_text="<b>RSI</b>", range=[0, 100], row=current_row, col=1)
+                            elif subplot == "STOCH":
+                                fig.add_trace(go.Scatter(x=idx, y=df["Stoch_K"], line=dict(color="darkcyan"), name="%K"), row=current_row, col=1)
+                                fig.add_trace(go.Scatter(x=idx, y=df["Stoch_D"], line=dict(color="chocolate", dash="dot"), name="%D"), row=current_row, col=1)
+                                fig.add_hline(y=80, line_dash="dot", line_color="red", row=current_row, col=1); fig.add_hline(y=20, line_dash="dot", line_color="green", row=current_row, col=1)
+                                fig.update_yaxes(title_text="<b>STOCH</b>", range=[0, 100], row=current_row, col=1)
+                            elif subplot == "MACD":
+                                fig.add_trace(go.Bar(x=idx, y=df["MACD_Hist"], marker_color="gray", name="MACD Hist"), row=current_row, col=1)
+                                fig.add_trace(go.Scatter(x=idx, y=df["MACD"], line=dict(color="blue"), name="MACD"), row=current_row, col=1)
+                                fig.add_trace(go.Scatter(x=idx, y=df["MACD_Signal"], line=dict(color="orange", dash="dot"), name="Signal"), row=current_row, col=1)
+                                fig.update_yaxes(title_text="<b>MACD</b>", row=current_row, col=1)
+                            current_row += 1
+
+                        fig.update_yaxes(title_text="<b>주가</b>", row=1, col=1, secondary_y=False)
+                        fig.update_yaxes(title_text="<b>거래량</b>", showgrid=False, range=[0, df["Volume_line"].max() * 5], row=1, col=1, secondary_y=True)
+                        fig.update_layout(height=max(600, 400 + (len(active_subplots) * 200)), hovermode="x unified", dragmode="pan", margin=dict(l=80, r=40, t=40, b=40), xaxis_rangeslider_visible=False)
+                        st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True})
+                        st.divider()
 
     # =======================================================================
     # ⭐ tab2: 관심종목 관리 화면은 그대로 유지됩니다.
