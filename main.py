@@ -873,24 +873,50 @@ def start_100b_dashboard():
                         st.divider()
 
                 @st.cache_data(ttl=86400, show_spinner=False)
-                def fetch_official_etf_summary(ticker, market):
+                def fetch_etf_beginner_guide(ticker, market, etf_name):
                     try:
                         if market == "한국":
-                            from bs4 import BeautifulSoup
                             import requests
+                            from bs4 import BeautifulSoup
                             code = ticker.split(".")[0]
                             url = f"https://finance.naver.com/item/main.naver?code={code}"
                             res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
                             soup = BeautifulSoup(res.text, 'html.parser')
-                            summary = soup.select_one('.summary_info p')
-                            if summary: return summary.text.strip()
-                            return "네이버 금융에서 공식 설명을 제공하지 않는 종목입니다."
+                            
+                            index_name = "해당 자산운용사 자체 지수 또는 액티브 운용"
+                            fee = "알 수 없음"
+                            
+                            # 어려운 법적 설명 대신, 표에서 '기초지수'와 '총보수(수수료)'만 핵심 추출!
+                            for tr in soup.find_all('tr'):
+                                th = tr.find('th')
+                                if th:
+                                    if "기초지수" in th.text:
+                                        td = tr.find('td')
+                                        if td: index_name = td.text.strip().replace("\n", " ")
+                                    if "총보수" in tr.text:
+                                        td = tr.find('td')
+                                        if td: fee = td.text.strip()
+                                        
+                            guide = f"**💡 무엇에 투자하나요? (추종 지수)**\n- **{index_name}**의 움직임에 따라 수익률이 결정됩니다.\n\n"
+                            guide += f"**💰 펀드 운용 수수료 (총보수)**\n- **{fee}**\n\n"
+                            guide += f"**📌 종목명 기초 상식:**\n- **{etf_name}** (앞의 영어는 자산운용사 브랜드명이고, 뒤는 투자 섹터를 의미합니다.)"
+                            
+                            if "레버리지" in etf_name or "인버스" in etf_name or "2X" in etf_name:
+                                guide += "\n\n⚠️ **초보자 주의:** 이 상품은 지수 변동성을 2배 이상으로 추종하거나 반대로 움직이는 고위험 상품입니다. 원금이 쉽게 녹을 수 있으니 단기 투자용으로만 접근하세요."
+                            return guide
+                            
                         else:
-                            import yfinance as yf
-                            info = yf.Ticker(ticker).info
-                            return info.get('longBusinessSummary', '공식 운용 설명(Prospectus)이 제공되지 않는 종목입니다.')
+                            # 미국 ETF는 야후 에러를 피하기 위해 우리가 만든 직관적인 한글 이름(n_map)을 100% 활용!
+                            theme = etf_name
+                            guide = f"**💡 무엇에 투자하나요? (핵심 테마)**\n- 이 ETF는 미국 시장의 **[{theme}]**에 집중 투자하는 상품입니다.\n\n"
+                            
+                            if "2배" in theme or "3배" in theme or "인버스" in theme:
+                                guide += "⚠️ **초보자 주의사항:**\n이 종목은 지수 변동성을 2~3배로 추종하거나 하락에 배팅하는 **특수 목적(레버리지/고위험)** 종목입니다. 장기 투자(존버)보다는 단기적인 시장 추세 대응용으로만 접근하세요."
+                            else:
+                                guide += "✅ **초보자 가이드:**\n전 세계 투자자들이 가장 많이 거래하는 글로벌 대표 우량 ETF 중 하나입니다. 개별 주식을 고르기 어려울 때 시장 전체나 특정 산업의 성장에 쉽게 올라탈 수 있는 훌륭한 뼈대 종목입니다."
+                            return guide
                     except Exception:
-                        return "설명 데이터를 불러오는 중 일시적인 오류가 발생했습니다."
+                        return "초보자 가이드를 불러오는 중 일시적인 오류가 발생했습니다."
 
                 sel_tk = st.session_state["selected_ticker"]
                 if sel_tk != "NONE":
@@ -906,10 +932,11 @@ def start_100b_dashboard():
                         mc3.metric("외국인/기관 보유율", f"{f_fr:.2f}%" if f_fr > 0 else "N/A")
                         st.divider()
                     else:
-                        # 🌟 ETF 공식 설명서 크롤링 및 표시 영역
-                        with st.spinner("ETF 공식 운용 설명서(Prospectus) 불러오는 중..."):
-                            etf_desc = fetch_official_etf_summary(sel_tk, c_m)
-                        st.info(f"**📖 ETF 운용 개요 (자산운용사 공식 설명)**\n\n{etf_desc}")
+                        # 🌟 ETF 초보자 친화적 설명 영역
+                        with st.spinner("초보자용 ETF 가이드 불러오는 중..."):
+                            etf_name_kr = n_map.get(sel_tk, sel_tk)
+                            etf_desc = fetch_etf_beginner_guide(sel_tk, c_m, etf_name_kr)
+                        st.info(f"**📖 ETF 1분 완전 정복 가이드**\n\n{etf_desc}")
                         st.divider()
 
                     tf = st.radio("시간 축", ["일봉", "주봉", "60분봉"], horizontal=True, key="time_frame_radio")
