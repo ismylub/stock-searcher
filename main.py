@@ -211,86 +211,46 @@ def fetch_specific_timeframe_data(ticker, selection):
         return process_technical_indicators(yf.download(ticker, period=p, interval=i, **kwargs))
     except: return pd.DataFrame()
 
-# 🌟 [업그레이드] 한국어/영어 섹터 키워드 완벽 매핑
-def translate_yf_sector(sec):
-    if not isinstance(sec, str) or not sec.strip() or sec == "nan": return "미분류"
-    s = sec.lower()
-    if any(x in s for x in ["technology", "software", "semiconductor", "computer", "it", "소프트웨어", "컴퓨터", "전자", "반도체", "정보", "통신장비"]): return "정보기술 (IT)"
-    if any(x in s for x in ["health", "medical", "pharma", "biotech", "의료", "의약", "보건", "제약"]): return "헬스케어"
-    if any(x in s for x in ["financial", "bank", "insurance", "capital", "금융", "은행", "보험", "지주", "증권", "신용"]): return "금융"
-    if any(x in s for x in ["consumer cyclical", "auto", "retail", "leisure", "자동차", "엔터", "여가", "쇼핑", "도소매", "섬유", "의복", "교육", "숙박"]): return "임의소비재"
-    if any(x in s for x in ["communication", "media", "telecom", "통신업", "방송", "출판", "영상", "정보서비스"]): return "커뮤니케이션"
-    if any(x in s for x in ["industrial", "aerospace", "defense", "machinery", "기계", "장비", "건설", "운수", "운송", "조선", "항공", "해운"]): return "산업재"
-    if any(x in s for x in ["material", "chemical", "steel", "mining", "화학", "철강", "금속", "비금속", "목재", "종이", "플라스틱", "고무", "소재"]): return "소재"
-    if any(x in s for x in ["energy", "oil", "gas", "에너지", "석유", "정유", "석탄"]): return "에너지"
-    if any(x in s for x in ["defensive", "staple", "food", "음식료", "식료품", "담배", "농림", "수산"]): return "필수소비재"
-    if any(x in s for x in ["utility", "power", "water", "전기", "수도", "가스업", "유틸리티"]): return "유틸리티"
-    if any(x in s for x in ["real estate", "reit", "부동산", "임대"]): return "부동산"
-    return "미분류"
+def check_investor_streak_naver(ticker, investor_type, total_days, buy_days, min_vol_ratio=5.0):
+    if ".KS" not in ticker and ".KQ" not in ticker: return False
+    time.sleep(REQUEST_DELAY)
+    code = ticker.split(".")[0]
+    url = f"https://finance.naver.com/item/frgn.naver?code={code}&page=1"
+    try:
+        req_proxies = PROXY_DICT if USE_PROXY else None
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5, proxies=req_proxies)
+        res.encoding = "euc-kr"
+        df = pd.read_html(StringIO(res.text))[3].copy().dropna()
+        df.columns = ["날짜", "종가", "전일비", "등락률", "거래량", "기관", "외국인", "보유주수", "보유율"]
+        for col in ["기관", "외국인", "거래량"]: df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+        recent_df = df.head(total_days)
+        valid_foreign = (recent_df["외국인"] > 0) & (recent_df["거래량"] > 0) & ((recent_df["외국인"] / recent_df["거래량"] * 100) >= min_vol_ratio)
+        valid_inst = (recent_df["기관"] > 0) & (recent_df["거래량"] > 0) & ((recent_df["기관"] / recent_df["거래량"] * 100) >= min_vol_ratio)
+        if investor_type == "외인": return valid_foreign.sum() >= buy_days
+        elif investor_type == "기관": return valid_inst.sum() >= buy_days
+        elif investor_type == "양매수": return (valid_foreign.sum() >= buy_days) and (valid_inst.sum() >= buy_days)
+    except: pass
+    return False
 
-SECTOR_DB_FILE = "sector_db.csv"
-def load_sector_db():
-    if os.path.exists(SECTOR_DB_FILE):
-        try: return dict(zip(pd.read_csv(SECTOR_DB_FILE)["Ticker"], pd.read_csv(SECTOR_DB_FILE)["Sector"]))
-        except: pass
-    return {}
-
-def save_sector_db(db_dict): pd.DataFrame(list(db_dict.items()), columns=["Ticker", "Sector"]).to_csv(SECTOR_DB_FILE, index=False)
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def sync_market_sectors_v8(market_type):
-    db, name_db = load_sector_db(), get_market_database(market_type, "일반 주식")
-    tickers, changed = list(name_db.keys()), False
-    
-    # 🌟 한국거래소(KRX) 공식 섹터 분류 데이터 싹 끌어오기
-    krx_sector_map = {}
-    if "한국" in market_type:
-        try:
-            krx_df = fdr.StockListing('KRX')
-            for _, row in krx_df.iterrows():
-                tk = f"{str(row['Code']).zfill(6)}{'.KS' if 'KOSPI' in str(row.get('Market', '')).upper() else '.KQ'}"
-                krx_sector_map[tk] = str(row.get("Sector", ""))
-        except: pass
-
-    if "한국" not in market_type:
-        try:
-            for n in ["S&P500", "NASDAQ"]:
-                for _, r in fdr.StockListing(n).iterrows():
-                    tk = str(r["Symbol"]).replace(".", "-")
-                    if tk in tickers and (tk not in db or db[tk] == "미분류"):
-                        db[tk], changed = translate_yf_sector(str(r.get("Sector" if n=="S&P500" else "Industry", ""))), True
-        except: pass
-
-    final_map = {}
-    for tk in tickers:
-        val = db.get(tk, "미분류")
-        if val == "미분류" and "한국" in market_type:
-            # 1. KRX 공식 섹터를 1순위로 매핑
-            raw_sector = krx_sector_map.get(tk, "")
-            if raw_sector and raw_sector != "nan":
-                val = translate_yf_sector(raw_sector)
-            
-            # 2. 공식 섹터가 없으면 이름으로 2차 매핑 (지주사, 솔루션 등 키워드 대거 보강)
-            if val == "미분류":
-                n = str(name_db.get(tk, "")).replace(" ", "").upper()
-                if any(x in n for x in ["전자", "반도체", "IT", "소프트", "기술", "네이버", "카카오", "솔루션", "시스템"]): val = "정보기술 (IT)"
-                elif any(x in n for x in ["제약", "바이오", "헬스케어", "메디", "신약", "팜"]): val = "헬스케어"
-                elif any(x in n for x in ["통신", "엔터", "게임", "미디어", "스튜디오"]): val = "커뮤니케이션"
-                elif any(x in n for x in ["화학", "철강", "소재", "에코", "포스코"]): val = "소재"
-                elif any(x in n for x in ["건설", "중공업", "조선", "방산", "항공", "기계", "에어로"]): val = "산업재"
-                elif any(x in n for x in ["은행", "금융", "지주", "증권", "생명", "화재", "보험", "투자", "캐피탈", "스퀘어"]): val = "금융"
-                elif any(x in n for x in ["식품", "음료", "화장품", "제일제당", "생활", "F&B"]): val = "필수소비재"
-                elif any(x in n for x in ["쇼핑", "자동차", "호텔", "투어", "백화점", "모터스", "리테일", "물산"]): val = "임의소비재"
-                elif any(x in n for x in ["에너지", "정유", "전력", "가스", "에코프로"]): val = "에너지"
-        
-        final_map[tk] = val
-    if changed: save_sector_db(db)
-    return final_map
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def fetch_sectors_for_watchlist_v8(tickers):
-    map_kor, map_us = sync_market_sectors_v8("한국"), sync_market_sectors_v8("미국")
-    return {t: map_kor.get(t, "미분류") if (".KS" in t or ".KQ" in t) else map_us.get(t, "미분류") for t in tickers}
+def fetch_news_rss(query, category):
+    encoded_query = urllib.request.quote(f"{query} when:1d")
+    url = f"https://news.google.com/rss/search?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        xml_data = get_urllib_opener().open(req, timeout=5).read()
+        news_list = []
+        for item in ET.fromstring(xml_data).findall(".//item")[:20]:
+            title, link, pub_date, source_tag, desc = item.find("title").text, item.find("link").text, item.find("pubDate").text, item.find("source"), item.find("description").text
+            clean_desc = re.sub("<[^<]+?>", "", desc)
+            clean_desc = clean_desc[:120] + "..." if len(clean_desc) > 120 else clean_desc
+            try:
+                dt_obj = datetime.datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S %Z")
+                if "GMT" in pub_date or "UTC" in pub_date: dt_obj += datetime.timedelta(hours=9)
+                formatted_date = dt_obj.strftime("%Y-%m-%d %H:%M")
+            except: formatted_date = pub_date
+            news_list.append({"category": category, "title": title, "date": formatted_date, "desc": clean_desc, "source": source_tag.text if source_tag is not None else "Google News", "link": link})
+        return news_list
+    except: return []
 
 def toggle_news_state():
     st.session_state["show_news"] = not st.session_state.get("show_news", False)
@@ -311,16 +271,16 @@ def format_trend_html(trend_str):
 # =======================================================================
 def start_100b_dashboard():
     def reset_all_filters():
-        defaults = {"k_market": "한국", "k_asset_type": "일반 주식", "k_array": "조건없음", "k_ma_n": 20, "k_ma_cond": "조건없음", "k_ichi": "조건없음", "k_bb": "조건없음", "k_macd": "조건없음", "k_rsi": (0, 100), "k_stoch": "조건없음", "k_vol": "조건없음", "k_vol_n": 20, "k_inv_type": "조건없음", "k_inv_m": 5, "k_inv_n": 3, "k_inv_pct": 5.0, "k_vol_rank": False, "k_ma_s": 5, "k_ma_l": 120, "k_ma_c": "조건없음", "k_bb_sq": False, "k_bb_sq_n": 20, "k_bb_sq_pct": 5.0, "k_maup_n": 20, "k_maup_m": 5, "k_maup_cond": "조건없음", "k_sector": "조건없음", "k_drop_cond": False, "k_drop_target": 30, "k_drop_margin": 5, "k_per": 0.0, "k_pbr": 0.0, "k_foreigner_rate": 0.0, "k_trend_cond": "조건없음"}
+        defaults = {"k_market": "한국", "k_asset_type": "일반 주식", "k_array": "조건없음", "k_ma_n": 20, "k_ma_cond": "조건없음", "k_ichi": "조건없음", "k_bb": "조건없음", "k_macd": "조건없음", "k_rsi": (0, 100), "k_stoch": "조건없음", "k_vol": "조건없음", "k_vol_n": 20, "k_inv_type": "조건없음", "k_inv_m": 5, "k_inv_n": 3, "k_inv_pct": 5.0, "k_vol_rank": False, "k_ma_s": 5, "k_ma_l": 120, "k_ma_c": "조건없음", "k_bb_sq": False, "k_bb_sq_n": 20, "k_bb_sq_pct": 5.0, "k_maup_n": 20, "k_maup_m": 5, "k_maup_cond": "조건없음", "k_drop_cond": False, "k_drop_target": 30, "k_drop_margin": 5, "k_per": 0.0, "k_pbr": 0.0, "k_foreigner_rate": 0.0, "k_trend_cond": "조건없음"}
         for k, v in defaults.items(): st.session_state[k] = v
         if "matched_stocks" in st.session_state: del st.session_state["matched_stocks"]
 
-    st.set_page_config(page_title="나만의 주식 검색기 V7.3", layout="wide")
+    st.set_page_config(page_title="나만의 주식 검색기 V7.4", layout="wide")
     if "selected_ticker" not in st.session_state: st.session_state["selected_ticker"] = "NONE"
     registered_tickers = get_watchlist_df()["Ticker"].tolist()
 
     st.markdown("""<style>[data-testid="stSidebarUserContent"] { padding-top: 0rem !important; margin-top: -40px !important; } [data-testid="stSidebarUserContent"] h3 { font-size: 15px !important; margin-top: -20px !important; margin-bottom: -10px !important; } .inline-label { font-size: 13px !important; font-weight: bold; color: #333333; margin-top: -10px !important; margin-bottom: 2px !important; } div[data-baseweb="select"] { font-size: 12px !important; } div[data-baseweb="select"] > div { min-height: 40px !important; height: 40px !important; } [data-testid="stVerticalBlockBorderWrapper"] { padding: 5px 8px !important; margin-bottom: -20px !important; } .stButton button { min-height: 28px !important; height: 28px !important; font-size: 12px !important; padding: 0px 2px !important; white-space: nowrap !important; } hr { margin-top: 5px !important; margin-bottom: 5px !important; } [data-testid="stMarkdownContainer"] p { margin-bottom: 0px !important; } .stCheckbox { margin-top: 5px !important; } button[data-baseweb="tab"] { font-size: 16px !important; font-weight: bold !important; } div[data-testid="column"] p { font-size: 12px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; margin-bottom: 0px !important; letter-spacing: -0.5px; } div[data-testid="column"] button { font-size: 11px !important; padding: 0px 4px !important; }</style>""", unsafe_allow_html=True)
-    st.title("📈 100억 벌고 싶다 (V7.3 섹터 복구 완결판)")
+    st.title("📈 100억 벌고 싶다 (V7.4 심플 최적화)")
     st.divider()
 
     tab1, tab2 = st.tabs(["🔍 초고속 검색기", "⭐ 나의 관심종목 (신규 추가 가능)"])
@@ -358,7 +318,7 @@ def start_100b_dashboard():
                 new_preset_name = st.text_input("현재 조건 이름 지정", placeholder="예: 20선터치, 거래량 폭발", label_visibility="collapsed")
                 if st.button("💾 현재 세팅 저장", use_container_width=True):
                     if new_preset_name.strip():
-                        keys_to_save = ["k_market", "k_asset_type", "k_array", "k_ma_n", "k_ma_cond", "k_ichi", "k_bb", "k_macd", "k_rsi", "k_stoch", "k_vol", "k_vol_n", "k_inv_type", "k_inv_m", "k_inv_n", "k_inv_pct", "k_vol_rank", "k_ma_s", "k_ma_l", "k_ma_c", "k_bb_sq", "k_bb_sq_n", "k_bb_sq_pct", "k_maup_n", "k_maup_m", "k_maup_cond", "k_sector", "k_drop_cond", "k_drop_target", "k_drop_margin", "k_per", "k_pbr", "k_foreigner_rate", "k_trend_cond"]
+                        keys_to_save = ["k_market", "k_asset_type", "k_array", "k_ma_n", "k_ma_cond", "k_ichi", "k_bb", "k_macd", "k_rsi", "k_stoch", "k_vol", "k_vol_n", "k_inv_type", "k_inv_m", "k_inv_n", "k_inv_pct", "k_vol_rank", "k_ma_s", "k_ma_l", "k_ma_c", "k_bb_sq", "k_bb_sq_n", "k_bb_sq_pct", "k_maup_n", "k_maup_m", "k_maup_cond", "k_drop_cond", "k_drop_target", "k_drop_margin", "k_per", "k_pbr", "k_foreigner_rate", "k_trend_cond"]
                         current_data = {}
                         for k in keys_to_save:
                             val = st.session_state.get(k)
@@ -418,11 +378,7 @@ def start_100b_dashboard():
                     st.markdown('<div class="inline-label" style="margin-bottom: 5px;">스토캐스틱</div>', unsafe_allow_html=True)
                     stoch_cond = st.selectbox("스토캐스틱", ["조건없음", "20이하 골든크로스"], label_visibility="collapsed", key="k_stoch")
 
-            st.markdown("### 🏢 섹터 및 거래량")
-            with st.container(border=True):
-                avail_sectors = ["조건없음", "정보기술 (IT)", "금융", "헬스케어", "임의소비재", "커뮤니케이션", "산업재", "필수소비재", "에너지", "소재", "유틸리티", "부동산", "미분류"]
-                st.markdown('<div class="inline-label" style="margin-bottom: 5px;">섹터 선택</div>', unsafe_allow_html=True)
-                sector_cond = st.selectbox("섹터", avail_sectors, label_visibility="collapsed", key="k_sector")
+            st.markdown("### 🏢 거래량")
             with st.container(border=True):
                 c1, c2 = st.columns(2, gap="small")
                 with c1: vol_cond = st.selectbox("거래량 폭발", ["조건없음", "150%", "200%", "300%"], key="k_vol")
@@ -454,7 +410,6 @@ def start_100b_dashboard():
                     db = build_database(market, timeframe, asset_type)
 
                 with st.spinner(f"가치 및 수급 지표 동기화 중..."):
-                    sector_map = sync_market_sectors_v8(market) if asset_type == "일반 주식" else {}
                     sheet_data = fetch_sheet_data("KRX_DATA" if market == "한국" else "US_DATA") if asset_type == "일반 주식" else {}
                     supply_trend_map = fetch_supply_trend_data() 
 
@@ -462,7 +417,6 @@ def start_100b_dashboard():
                 name_map = get_market_database(market, asset_type)
 
                 for ticker, df in db.items():
-                    if asset_type == "일반 주식" and sector_cond != "조건없음" and sector_map.get(ticker, "미분류") != sector_cond: continue
                     if len(df) < 60: continue
                         
                     t_per, t_pbr, t_foreign_rate = 0.0, 0.0, 0.0
@@ -533,7 +487,6 @@ def start_100b_dashboard():
         elif isinstance(st.session_state.get("matched_stocks"), dict) and st.session_state.get("matched_stocks"):
             ms, dl, c_m, c_a = st.session_state["matched_stocks"], st.session_state["debug_list"], st.session_state["current_market"], st.session_state.get("current_asset_type", "일반 주식")
             n_map = get_market_database(c_m, c_a)
-            sector_map = sync_market_sectors_v8(c_m) if c_a == "일반 주식" else {}
 
             now_kst = datetime.datetime.now(pytz.timezone("Asia/Seoul"))
             st.info(f"🕒 데이터 동기화 완료")
@@ -546,9 +499,10 @@ def start_100b_dashboard():
                 st.success(f"총 {len(filtered_list)}개 자산 매칭 성공!")
                 
                 fr_header_text = "외인지분(%)" if c_m == "한국" else "기관지분(%)"
-                col_ratio_tab1 = [0.6, 1.4, 1.1, 1.8, 1.4, 1.2, 1.0, 1.0, 1.0, 1.0, 1.5]
+                # 섹터(기존 1.1)를 뺐으므로 나머지 비율을 살짝 늘려 공간 확보 (총 10개)
+                col_ratio_tab1 = [0.6, 1.4, 1.1, 1.8, 1.2, 1.0, 1.0, 1.0, 1.0, 1.5]
                 h_cols = st.columns(col_ratio_tab1)
-                for i, h in enumerate(["순번", "선택", "티커", "종목명", "섹터", "현재가", "1년고", "1년저", "고저밴드", fr_header_text, "수급추세"]): 
+                for i, h in enumerate(["순번", "선택", "티커", "종목명", "현재가", "1년고", "1년저", "고저밴드", fr_header_text, "수급추세"]): 
                     h_cols[i].write(f"**{h}**")
                 st.divider()
 
@@ -572,13 +526,12 @@ def start_100b_dashboard():
 
                         cols[2].write(item["티커"])
                         cols[3].write(item["종목명"])
-                        cols[4].write("ETF 상품" if c_a == "ETF 전용" else str(sector_map.get(item["티커"], "미분류"))[:8])
-                        cols[5].write(item["현재가"])
-                        cols[6].write(item.get("1년고", "N/A"))
-                        cols[7].write(item.get("1년저", "N/A"))
-                        cols[8].write(item.get("고저밴드", "0%"))
-                        cols[9].text(item.get("외인기관율", "N/A"))
-                        cols[10].markdown(format_trend_html(item.get("수급추세", "N/A")), unsafe_allow_html=True)
+                        cols[4].write(item["현재가"])
+                        cols[5].write(item.get("1년고", "N/A"))
+                        cols[6].write(item.get("1년저", "N/A"))
+                        cols[7].write(item.get("고저밴드", "0%"))
+                        cols[8].text(item.get("외인기관율", "N/A"))
+                        cols[9].markdown(format_trend_html(item.get("수급추세", "N/A")), unsafe_allow_html=True)
                         st.divider()
 
                 # =========================================================
@@ -671,7 +624,6 @@ def start_100b_dashboard():
             tickers = df_watch["Ticker"].tolist()
             with st.spinner("실시간 데이터 불러오는 중..."):
                 tech_map = fetch_watchlist_data(tickers)
-                sector_map_watch = fetch_sectors_for_watchlist_v8(tickers)
                 sheet_data_kr = fetch_sheet_data("KRX_DATA")
                 sheet_data_us = fetch_sheet_data("US_DATA")
                 supply_trend_map = fetch_supply_trend_data() 
@@ -694,15 +646,15 @@ def start_100b_dashboard():
                 display_rows.append({
                     "tk": tk, "nm": nm, "dt": dt, "tg1": tg1, "tg2": tg2, 
                     "price": price, "band_pos": band_pos, "diff1_pct": diff1_pct, 
-                    "sector": sector_map_watch.get(tk, "미분류"), 
                     "fr_rate": fr_rate, "trend": supply_trend_map.get(tk, "데이터 없음")
                 })
 
             display_rows.sort(key=lambda x: {"종목명": x["nm"], "등록일 (최신순)": x["dt"], "현재가": x["price"], "1차매수 근접도(%)": x["diff1_pct"], "고저밴드(%)": x["band_pos"]}[sort_by], reverse=(sort_order == "내림차순"))
             
-            col_ratio_tab2 = [1.3, 0.8, 1, 1.0, 0.8, 0.8, 0.6, 0.8, 1.4, 1.5]
+            # 섹터(기존 1) 제거로 비율 재조정 (총 9개 항목)
+            col_ratio_tab2 = [1.3, 0.8, 1.0, 0.8, 0.8, 0.6, 0.8, 1.4, 1.5]
             hc = st.columns(col_ratio_tab2)
-            for i, h in enumerate(["종목명", "등록일", "섹터", "현재가", "1차매수", "2차매수", "고저", "외인(韓)/기관(美)%", "수급추세", "관리(수정/삭제)"]): 
+            for i, h in enumerate(["종목명", "등록일", "현재가", "1차매수", "2차매수", "고저", "외인(韓)/기관(美)%", "수급추세", "관리(수정/삭제)"]): 
                 hc[i].write(f"**{h}**")
             st.divider()
 
@@ -712,25 +664,24 @@ def start_100b_dashboard():
                     cc = st.columns(col_ratio_tab2)
                     cc[0].write(f"**{nm}**\n({tk})")
                     cc[1].write(dt)
-                    cc[2].write(str(item.get("sector", "미분류"))[:12])
                     price_str = f"{price:,.0f}" if "KS" in tk or "KQ" in tk else f"{price:,.2f}"
                     if price > 0:
-                        if tg1 > 0 and (price <= tg1 or diff1_pct >= -0.5): cc[3].markdown(f"<span style='background-color:#ff4b4b;color:white;font-weight:bold;padding:3px 6px;border-radius:4px;'>🚨 {price_str}</span>", unsafe_allow_html=True)
-                        elif tg1 > 0 and diff1_pct >= -3.0: cc[3].markdown(f"<span style='background-color:#ffd700;color:black;font-weight:bold;padding:3px 6px;border-radius:4px;'>🎯 {price_str}</span>", unsafe_allow_html=True)
-                        else: cc[3].write(price_str)
-                    else: cc[3].write("데이터 없음")
+                        if tg1 > 0 and (price <= tg1 or diff1_pct >= -0.5): cc[2].markdown(f"<span style='background-color:#ff4b4b;color:white;font-weight:bold;padding:3px 6px;border-radius:4px;'>🚨 {price_str}</span>", unsafe_allow_html=True)
+                        elif tg1 > 0 and diff1_pct >= -3.0: cc[2].markdown(f"<span style='background-color:#ffd700;color:black;font-weight:bold;padding:3px 6px;border-radius:4px;'>🎯 {price_str}</span>", unsafe_allow_html=True)
+                        else: cc[2].write(price_str)
+                    else: cc[2].write("데이터 없음")
                     
-                    if tg1 > 0: cc[4].markdown(f"<span>{f'{tg1:,.0f}' if tg1>1000 else f'{tg1:,.2f}'}</span> <span style='color:{'#ff4b4b' if diff1_pct>0 else '#00bfff'};font-size:12px;font-weight:bold;'>({'+' if diff1_pct>0 else ''}{diff1_pct:.2f}%)</span>", unsafe_allow_html=True)
-                    else: cc[4].write("0")
+                    if tg1 > 0: cc[3].markdown(f"<span>{f'{tg1:,.0f}' if tg1>1000 else f'{tg1:,.2f}'}</span> <span style='color:{'#ff4b4b' if diff1_pct>0 else '#00bfff'};font-size:12px;font-weight:bold;'>({'+' if diff1_pct>0 else ''}{diff1_pct:.2f}%)</span>", unsafe_allow_html=True)
+                    else: cc[3].write("0")
                     if tg2 > 0 and tg1 > 0 and price < tg1 and price > 0:
                         diff2_pct = ((tg2 - price) / price) * 100
-                        cc[5].markdown(f"<span>{f'{tg2:,.0f}' if tg2>1000 else f'{tg2:,.2f}'}</span> <span style='color:{'#ff4b4b' if diff2_pct>0 else '#00bfff'};font-size:12px;font-weight:bold;'>({'+' if diff2_pct>0 else ''}{diff2_pct:.2f}%)</span>", unsafe_allow_html=True)
-                    else: cc[5].write(f"{tg2:,.0f}" if tg2 > 1000 else f"{tg2:,.2f}")
-                    cc[6].write(f"{item['band_pos']:.1f}%")
-                    cc[7].text(f"{item['fr_rate']:.2f}%" if item['fr_rate'] > 0 else "N/A")
-                    cc[8].markdown(format_trend_html(item['trend']), unsafe_allow_html=True)
+                        cc[4].markdown(f"<span>{f'{tg2:,.0f}' if tg2>1000 else f'{tg2:,.2f}'}</span> <span style='color:{'#ff4b4b' if diff2_pct>0 else '#00bfff'};font-size:12px;font-weight:bold;'>({'+' if diff2_pct>0 else ''}{diff2_pct:.2f}%)</span>", unsafe_allow_html=True)
+                    else: cc[4].write(f"{tg2:,.0f}" if tg2 > 1000 else f"{tg2:,.2f}")
+                    cc[5].write(f"{item['band_pos']:.1f}%")
+                    cc[6].text(f"{item['fr_rate']:.2f}%" if item['fr_rate'] > 0 else "N/A")
+                    cc[7].markdown(format_trend_html(item['trend']), unsafe_allow_html=True)
 
-                    mc1, mc2, mc3, mc4 = cc[9].columns([1, 1, 0.8, 0.8])
+                    mc1, mc2, mc3, mc4 = cc[8].columns([1, 1, 0.8, 0.8])
                     new_tg1 = mc1.number_input("1차", value=tg1, key=f"edit1_{tk}", label_visibility="collapsed")
                     new_tg2 = mc2.number_input("2차", value=tg2, key=f"edit2_{tk}", label_visibility="collapsed")
                     if mc3.button("수정", key=f"btn_edit_{tk}"): update_target_price(tk, new_tg1, new_tg2); st.rerun()
