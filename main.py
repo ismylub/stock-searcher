@@ -227,35 +227,73 @@ def get_market_database(market_type, asset_type="일반 주식"):
             if us_data: return {k: v["Name"] for k, v in us_data.items()}
             return {"AAPL": "Apple"}
     else:
-        # 🌟 [ETF 전용 모드] 구글 시트를 거치지 않고 실시간 정예 멤버 자동 구축
+        # =======================================================================
+        # 🌟 [ETF 전용 모드] 한/미 100개 정예 멤버 구성
+        # =======================================================================
         if "한국" in market_type:
             try:
                 df = fdr.StockListing("ETF/KR")
                 etf_dict = {}
-                for _, row in df.head(250).iterrows(): # 상위 거래 대금순 250개 정예 멤버
+                # 🇰🇷 [업그레이드] 거래량 및 시가총액 최상위 딱 100개만 커트!
+                for _, row in df.head(100).iterrows(): 
                     symbol = str(row["Symbol"]).zfill(6)
                     etf_dict[f"{symbol}.KS"] = str(row["Name"])
                 return etf_dict
             except:
                 return {"122630.KS": "KODEX 레버리지", "114800.KS": "KODEX 인버스"}
         else:
-            # 미국 시장을 이끄는 글로벌 대표 랜드마크 우량 ETF 리스트
+            # 🇺🇸 [업그레이드] 미국 우량/테마/레버리지/인버스 ETF 100선 총망라!
             return {
-                "SPY": "SPDR S&P 500 ETF (S&P500 지수 추종)", 
-                "QQQ": "Invesco QQQ Trust (나스닥100 지수 추종)", 
-                "DIA": "SPDR Dow Jones ETF (다우존스 지수 추종)",
-                "IWM": "iShares Russell 2000 ETF (중소형주)", 
-                "SOXX": "iShares Semiconductor ETF (반도체 필라델피아)", 
-                "SMH": "VanEck Semiconductor ETF (핵심 반도체 기업)",
-                "XLK": "Technology Sector SPDR (미국 기술주 대형 펀드)", 
-                "XLF": "Financial Sector SPDR (금융)", 
-                "XLV": "Health Care Sector SPDR (바이오/의료)",
-                "XLE": "Energy Sector SPDR (정유/에너지)",
-                "TQQQ": "ProShares UltraPro QQQ (나스닥 3배 레버리지)", 
-                "SQQQ": "ProShares UltraPro Short QQQ (나스닥 3배 곱버스)", 
-                "SOXL": "Direxion Daily Semi Bull 3X (반도체 3배 레버리지)",
-                "SCHD": "Schwab US Dividend Equity (미국 고배당 성장)", 
-                "JEPI": "JPMorgan Equity Premium (월배당 커버드콜)"
+                # 1. 시장 지수 추종 (S&P 500, 나스닥 등)
+                "SPY": "S&P 500", "IVV": "S&P 500", "VOO": "S&P 500", 
+                "QQQ": "NASDAQ 100", "QQQM": "NASDAQ 100 (저보수)", "DIA": "Dow Jones", 
+                "VTI": "미국 전체 주식", "IWM": "Russell 2000 (중소형주)",
+                
+                # 2. 배당 / 인컴
+                "SCHD": "미국 배당성장", "VIG": "배당성장", "VYM": "고배당", 
+                "JEPI": "프리미엄 인컴 (월배당)", "JEPQ": "나스닥 프리미엄 인컴",
+                "DGRO": "배당성장", "NOBL": "배당귀족",
+                
+                # 3. 11대 주요 섹터
+                "XLK": "기술주", "XLF": "금융주", "XLV": "헬스케어", 
+                "XLE": "에너지", "XLY": "임의소비재", "XLP": "필수소비재", 
+                "XLI": "산업재", "XLU": "유틸리티", "XLB": "소재", "XLRE": "부동산",
+                
+                # 4. 반도체 및 핵심 테크
+                "SOXX": "필라델피아 반도체", "SMH": "반도체 핵심", "IGV": "소프트웨어", 
+                "CIBR": "사이버보안", "HACK": "사이버보안", "SKYY": "클라우드",
+                
+                # 5. 바이오 / 테마 / 파괴적 혁신
+                "IBB": "바이오테크", "XBI": "바이오테크 (균등)", "ARKK": "파괴적 혁신",
+                "ARKG": "제노믹스", "ARKW": "차세대 인터넷",
+                
+                # 6. 채권 시장 (금리 인하/인상 방어용)
+                "TLT": "20년 이상 장기 국채", "IEF": "7-10년 중기 국채", "SHY": "1-3년 단기 국채",
+                "AGG": "미국 종합 채권", "BND": "전체 채권 시장", "LQD": "투자등급 회사채", 
+                "HYG": "하이일드(정크) 본드", "JNK": "하이일드 본드",
+                
+                # 7. 원자재 / 금 / 비트코인
+                "GLD": "금 현물", "IAU": "금 현물", "SLV": "은 현물", "USO": "원유", "UNG": "천연가스", 
+                "URA": "우라늄", "COPX": "구리 채굴", "LIT": "리튬 & 배터리",
+                "IBIT": "비트코인 현물", "FBTC": "비트코인 현물",
+                
+                # 8. 스타일 (가치/성장/모멘텀)
+                "VUG": "대형 성장주", "VTV": "대형 가치주", "IWF": "Russell 1000 성장", "IWD": "Russell 1000 가치",
+                "QUAL": "우량주", "MTUM": "모멘텀", "USMV": "저변동성",
+                
+                # 9. 🚀 레버리지 (2배/3배 상승 배팅)
+                "SSO": "S&P 500 2배", "UPRO": "S&P 500 3배",
+                "QLD": "NASDAQ 100 2배", "TQQQ": "NASDAQ 100 3배",
+                "USD": "반도체 2배", "SOXL": "반도체 3배",
+                "UCO": "원유 2배", "BOIL": "천연가스 2배",
+                "CURE": "헬스케어 3배", "FAS": "금융 3배", "TECL": "기술주 3배",
+                "TMF": "장기 국채 3배 (금리 인하 풀배팅)",
+                
+                # 10. 📉 숏/인버스 (하락 배팅 방어용)
+                "SH": "S&P 500 인버스 (-1배)", "SDS": "S&P 500 인버스 (-2배)", "SPXU": "S&P 500 인버스 (-3배)",
+                "PSQ": "NASDAQ 인버스 (-1배)", "QID": "NASDAQ 인버스 (-2배)", "SQQQ": "NASDAQ 인버스 (-3배)",
+                "SOXS": "반도체 인버스 (-3배)", "TZA": "중소형주 인버스 (-3배)", "KOLD": "천연가스 인버스 (-2배)",
+                "TBF": "장기 국채 인버스 (-1배)", "TBT": "장기 국채 인버스 (-2배)", "TMV": "장기 국채 인버스 (-3배)"
             }
 
 @st.cache_data(ttl=14400, show_spinner=False)
