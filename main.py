@@ -177,11 +177,10 @@ def fetch_watchlist_data(tickers):
     return tech_map
 
 # =======================================================================
-# 🔥 통합 데이터 수집 엔진 (구글 시트 연동)
+# 🔥 통합 데이터 수집 엔진 (구글 시트 및 실시간 ETF 대응)
 # =======================================================================
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_sheet_data(sheet_name):
-    """지정된 구글 시트 탭(KRX_DATA 또는 US_DATA)에서 데이터를 불러옵니다."""
     conn = st.connection("gsheets", type=GSheetsConnection)
     try:
         df = conn.read(worksheet=sheet_name, ttl=3600)
@@ -217,21 +216,51 @@ def get_krx_full_search_map():
         return {}
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def get_market_database(market_type):
-    if "한국" in market_type:
-        krx_data = fetch_sheet_data("KRX_DATA")
-        if krx_data:
-            return {k: v["Name"] for k, v in krx_data.items()}
-        return {"005930.KS": "삼성전자", "000660.KS": "SK하이닉스"}
+def get_market_database(market_type, asset_type="일반 주식"):
+    if asset_type == "일반 주식":
+        if "한국" in market_type:
+            krx_data = fetch_sheet_data("KRX_DATA")
+            if krx_data: return {k: v["Name"] for k, v in krx_data.items()}
+            return {"005930.KS": "삼성전자"}
+        else:
+            us_data = fetch_sheet_data("US_DATA")
+            if us_data: return {k: v["Name"] for k, v in us_data.items()}
+            return {"AAPL": "Apple"}
     else:
-        us_data = fetch_sheet_data("US_DATA")
-        if us_data:
-            return {k: v["Name"] for k, v in us_data.items()}
-        return {"AAPL": "Apple", "TSLA": "Tesla"}
+        # 🌟 [ETF 전용 모드] 구글 시트를 거치지 않고 실시간 정예 멤버 자동 구축
+        if "한국" in market_type:
+            try:
+                df = fdr.StockListing("ETF/KR")
+                etf_dict = {}
+                for _, row in df.head(250).iterrows(): # 상위 거래 대금순 250개 정예 멤버
+                    symbol = str(row["Symbol"]).zfill(6)
+                    etf_dict[f"{symbol}.KS"] = str(row["Name"])
+                return etf_dict
+            except:
+                return {"122630.KS": "KODEX 레버리지", "114800.KS": "KODEX 인버스"}
+        else:
+            # 미국 시장을 이끄는 글로벌 대표 랜드마크 우량 ETF 리스트
+            return {
+                "SPY": "SPDR S&P 500 ETF (S&P500 지수 추종)", 
+                "QQQ": "Invesco QQQ Trust (나스닥100 지수 추종)", 
+                "DIA": "SPDR Dow Jones ETF (다우존스 지수 추종)",
+                "IWM": "iShares Russell 2000 ETF (중소형주)", 
+                "SOXX": "iShares Semiconductor ETF (반도체 필라델피아)", 
+                "SMH": "VanEck Semiconductor ETF (핵심 반도체 기업)",
+                "XLK": "Technology Sector SPDR (미국 기술주 대형 펀드)", 
+                "XLF": "Financial Sector SPDR (금융)", 
+                "XLV": "Health Care Sector SPDR (바이오/의료)",
+                "XLE": "Energy Sector SPDR (정유/에너지)",
+                "TQQQ": "ProShares UltraPro QQQ (나스닥 3배 레버리지)", 
+                "SQQQ": "ProShares UltraPro Short QQQ (나스닥 3배 곱버스)", 
+                "SOXL": "Direxion Daily Semi Bull 3X (반도체 3배 레버리지)",
+                "SCHD": "Schwab US Dividend Equity (미국 고배당 성장)", 
+                "JEPI": "JPMorgan Equity Premium (월배당 커버드콜)"
+            }
 
 @st.cache_data(ttl=14400, show_spinner=False)
-def build_database(market_type, timeframe="일봉"):
-    tickers = list(get_market_database(market_type).keys())
+def build_database(market_type, timeframe="일봉", asset_type="일반 주식"):
+    tickers = list(get_market_database(market_type, asset_type).keys())
     if not tickers:
         tickers = ["005930.KS"] if "한국" in market_type else ["AAPL"]
 
@@ -265,7 +294,7 @@ def fetch_specific_timeframe_data(ticker, selection):
         return pd.DataFrame()
 
 # =======================================================================
-# 🌐 네이버 금융 수급 연동 로직 (한국 한정)
+# 🌐 네이버 금융 수급 연동 로직 (한국 일반주식 한정)
 # =======================================================================
 def check_investor_streak_naver(ticker, investor_type, total_days, buy_days, min_vol_ratio=5.0):
     if ".KS" not in ticker and ".KQ" not in ticker:
@@ -359,7 +388,7 @@ def translate_yf_sector(sec):
 @st.cache_data(ttl=86400, show_spinner=False)
 def sync_market_sectors_v8(market_type):
     db = load_sector_db()
-    name_db = get_market_database(market_type)
+    name_db = get_market_database(market_type, "일반 주식")
     tickers = list(name_db.keys())
     changed = False
 
@@ -411,7 +440,7 @@ def toggle_news_state():
 def start_100b_dashboard():
     def reset_all_filters():
         defaults = {
-            "k_market": "한국", "k_array": "조건없음", "k_ma_n": 20, "k_ma_cond": "조건없음",
+            "k_market": "한국", "k_asset_type": "일반 주식", "k_array": "조건없음", "k_ma_n": 20, "k_ma_cond": "조건없음",
             "k_ichi": "조건없음", "k_bb": "조건없음", "k_macd": "조건없음", "k_rsi": (0, 100),
             "k_stoch": "조건없음", "k_vol": "조건없음", "k_vol_n": 20, "k_inv_type": "조건없음",
             "k_inv_m": 5, "k_inv_n": 3, "k_inv_pct": 5.0, "k_vol_rank": False, "k_ma_s": 5, 
@@ -420,10 +449,8 @@ def start_100b_dashboard():
             "k_drop_cond": False, "k_drop_target": 30, "k_drop_margin": 5,
             "k_per": 0.0, "k_pbr": 0.0, "k_foreigner_rate": 0.0,
         }
-        for k, v in defaults.items():
-            st.session_state[k] = v
-        if "matched_stocks" in st.session_state:
-            del st.session_state["matched_stocks"]
+        for k, v in defaults.items(): st.session_state[k] = v
+        if "matched_stocks" in st.session_state: del st.session_state["matched_stocks"]
 
     st.set_page_config(page_title="나만의 주식 검색기 V6.2", layout="wide")
 
@@ -457,18 +484,20 @@ def start_100b_dashboard():
 
     with tab1:
         with st.sidebar:
-            col_market, col_btn1, col_btn2 = st.columns([4, 3, 3], gap="small")
+            # 🌟 [메인 업그레이드] 시장과 자산군 선택 영역 분리
+            col_market, col_asset = st.columns(2, gap="small")
             with col_market:
                 st.markdown('<div class="inline-label" style="margin-bottom: 5px;">시장</div>', unsafe_allow_html=True)
                 market = st.selectbox("시장", ["한국", "미국"], label_visibility="collapsed", key="k_market")
-            with col_btn1:
-                st.markdown('<div class="inline-label" style="margin-bottom: 5px;">&nbsp;</div>', unsafe_allow_html=True)
-                st.button("🧹필터", use_container_width=True, on_click=reset_all_filters)
+            with col_asset:
+                st.markdown('<div class="inline-label" style="margin-bottom: 5px;">조회 대상</div>', unsafe_allow_html=True)
+                asset_type = st.selectbox("조회 대상", ["일반 주식", "ETF 전용"], label_visibility="collapsed", key="k_asset_type")
+                
+            col_btn1, col_btn2 = st.columns(2, gap="small")
+            with col_btn1: st.button("🧹필터 초기화", use_container_width=True, on_click=reset_all_filters)
             with col_btn2:
-                st.markdown('<div class="inline-label" style="margin-bottom: 5px;">&nbsp;</div>', unsafe_allow_html=True)
-                if st.button("🗑️캐시", use_container_width=True):
-                    st.cache_data.clear()
-                    st.rerun()
+                if st.button("🗑️캐시 삭제", use_container_width=True):
+                    st.cache_data.clear(); st.rerun()
             st.divider()
 
             st.markdown("### 💾 나의 전략 저장소")
@@ -492,7 +521,7 @@ def start_100b_dashboard():
                 new_preset_name = st.text_input("현재 조건 이름 지정", placeholder="예: 20선터치, 거래량 폭발", label_visibility="collapsed")
                 if st.button("💾 현재 세팅 저장", use_container_width=True):
                     if new_preset_name.strip():
-                        keys_to_save = ["k_market", "k_array", "k_ma_n", "k_ma_cond", "k_ichi", "k_bb", "k_macd", "k_rsi", "k_stoch", "k_vol", "k_vol_n", "k_inv_type", "k_inv_m", "k_inv_n", "k_inv_pct", "k_vol_rank", "k_ma_s", "k_ma_l", "k_ma_c", "k_bb_sq", "k_bb_sq_n", "k_bb_sq_pct", "k_maup_n", "k_maup_m", "k_maup_cond", "k_sector", "k_drop_cond", "k_drop_target", "k_drop_margin", "k_per", "k_pbr", "k_foreigner_rate"]
+                        keys_to_save = ["k_market", "k_asset_type", "k_array", "k_ma_n", "k_ma_cond", "k_ichi", "k_bb", "k_macd", "k_rsi", "k_stoch", "k_vol", "k_vol_n", "k_inv_type", "k_inv_m", "k_inv_n", "k_inv_pct", "k_vol_rank", "k_ma_s", "k_ma_l", "k_ma_c", "k_bb_sq", "k_bb_sq_n", "k_bb_sq_pct", "k_maup_n", "k_maup_m", "k_maup_cond", "k_sector", "k_drop_cond", "k_drop_target", "k_drop_margin", "k_per", "k_pbr", "k_foreigner_rate"]
                         current_data = {}
                         for k in keys_to_save:
                             val = st.session_state.get(k)
@@ -507,13 +536,13 @@ def start_100b_dashboard():
                                 elif k == "k_bb_sq_pct": val = 5.0
                                 elif k == "k_drop_target": val = 30
                                 elif k == "k_market": val = "한국"
+                                elif k == "k_asset_type": val = "일반 주식"
                                 elif k in ["k_per", "k_pbr", "k_foreigner_rate"]: val = 0.0
                                 else: val = "조건없음"
                             current_data[k] = val
                         save_filter_preset(new_preset_name.strip(), current_data)
                         st.rerun()
-                    else:
-                        st.warning("이름을 입력해주세요.")
+                    else: st.warning("이름을 입력해주세요.")
             st.divider()
 
             st.markdown("### 🚀 종목 스캔")
@@ -590,75 +619,80 @@ def start_100b_dashboard():
                 with c2: vol_n = st.number_input("기준(N봉)", 1, 100, 20, key="k_vol_n")
 
             # ---------------------------------------------------------
-            # 🌐 [가치 & 지분율 (한/미 공통 통합)]
+            # 💰 가치 & 지분율 영역 (ETF 모드일 때는 화면 조건 자동 비활성화)
             # ---------------------------------------------------------
             st.markdown("---")
-            st.markdown("### 💰 가치 & 지분율 (구글 시트 연동)")
-            with st.container(border=True):
-                c1, c2 = st.columns(2, gap="small")
-                with c1:
-                    per_cond = st.number_input("PER 이하 (0=미적용)", min_value=0.0, max_value=500.0, value=st.session_state.get("k_per", 0.0), step=1.0, key="k_per")
-                with c2:
-                    pbr_cond = st.number_input("PBR 이하 (0=미적용)", min_value=0.0, max_value=50.0, value=st.session_state.get("k_pbr", 0.0), step=0.1, key="k_pbr")
-                
-                fr_label = "외국인 지분율(%)" if market == "한국" else "기관 투자자 지분율(%)"
-                k_foreigner_rate = st.number_input(f"{fr_label} 이상 (0=미적용)", min_value=0.0, max_value=100.0, value=st.session_state.get("k_foreigner_rate", 0.0), step=1.0, key="k_foreigner_rate")
-
-            if market == "한국":
-                st.markdown("#### 🕵️‍♂️ 수급 분석 (네이버)")
+            if asset_type == "일반 주식":
+                st.markdown("### 💰 가치 & 지분율 (구글 시트 연동)")
                 with st.container(border=True):
-                    st.markdown('<div class="inline-label" style="margin-bottom: 5px;">외인/기관 (M일 중 N일 매수)</div>', unsafe_allow_html=True)
-                    c1, c2, c3, c4 = st.columns([1.3, 0.9, 0.9, 1.2], gap="small")
-                    with c1: investor_type = st.selectbox("주체", ["조건없음", "외인", "기관", "양매수"], label_visibility="collapsed", key="k_inv_type")
-                    with c2: investor_total_days = st.number_input("총(M)", 1, 100, 5, label_visibility="collapsed", key="k_inv_m")
-                    with c3: investor_buy_days = st.number_input("매수(N)", 1, 100, 3, label_visibility="collapsed", key="k_inv_n")
-                    with c4: investor_min_pct = st.number_input("비중(%)", 0.0, 100.0, 5.0, step=1.0, label_visibility="collapsed", key="k_inv_pct")
-            else:
-                investor_type, investor_total_days, investor_buy_days, investor_min_pct = "조건없음", 5, 3, 5.0
+                    c1, c2 = st.columns(2, gap="small")
+                    with c1: per_cond = st.number_input("PER 이하 (0=미적용)", min_value=0.0, max_value=500.0, value=st.session_state.get("k_per", 0.0), step=1.0, key="k_per")
+                    with c2: pbr_cond = st.number_input("PBR 이하 (0=미적용)", min_value=0.0, max_value=50.0, value=st.session_state.get("k_pbr", 0.0), step=0.1, key="k_pbr")
+                    
+                    fr_label = "외국인 지분율(%)" if market == "한국" else "기관 투자자 지분율(%)"
+                    k_foreigner_rate = st.number_input(f"{fr_label} 이상 (0=미적용)", min_value=0.0, max_value=100.0, value=st.session_state.get("k_foreigner_rate", 0.0), step=1.0, key="k_foreigner_rate")
 
-            search_btn = scan_action_placeholder.button("🚀 글로벌 데이터 초고속 스캔 (실행)", use_container_width=True, type="primary")
+                if market == "한국":
+                    st.markdown("#### 🕵️‍♂️ 수급 분석 (네이버)")
+                    with st.container(border=True):
+                        st.markdown('<div class="inline-label" style="margin-bottom: 5px;">외인/기관 (M일 중 N일 매수)</div>', unsafe_allow_html=True)
+                        c1, c2, c3, c4 = st.columns([1.3, 0.9, 0.9, 1.2], gap="small")
+                        with c1: investor_type = st.selectbox("주체", ["조건없음", "외인", "기관", "양매수"], label_visibility="collapsed", key="k_inv_type")
+                        with c2: investor_total_days = st.number_input("총(M)", 1, 100, 5, label_visibility="collapsed", key="k_inv_m")
+                        with c3: investor_buy_days = st.number_input("매수(N)", 1, 100, 3, label_visibility="collapsed", key="k_inv_n")
+                        with c4: investor_min_pct = st.number_input("비중(%)", 0.0, 100.0, 5.0, step=1.0, label_visibility="collapsed", key="k_inv_pct")
+                else:
+                    investor_type, investor_total_days, investor_buy_days, investor_min_pct = "조건없음", 5, 3, 5.0
+            else:
+                # ETF 전용 모드일 때는 필터 조건 강제 초기화
+                per_cond, pbr_cond, k_foreigner_rate, investor_type = 0.0, 0.0, 0.0, "조건없음"
+                st.info("💡 ETF 모드에서는 재무 가치 지표 및 메인 수급 필터가 자동으로 제외됩니다.")
+
+            btn_label = "📊 우량 ETF 초고속 스캔 (실행)" if asset_type == "ETF 전용" else "🚀 글로벌 데이터 초고속 스캔 (실행)"
+            search_btn = scan_action_placeholder.button(btn_label, use_container_width=True, type="primary")
 
             if search_btn:
                 st.session_state["selected_ticker"] = "NONE"
-                with st.spinner(f"글로벌 데이터 1년치 스캔 중... (구글 시트 연동으로 초고속!)"):
-                    db = build_database(market, timeframe)
+                with st.spinner(f"데이터 1년치 추출 및 차트 분석 중..."):
+                    db = build_database(market, timeframe, asset_type)
 
-                with st.spinner(f"가치 지표 및 섹터 DB 동기화 중..."):
-                    sector_map = sync_market_sectors_v8(market)
-                    sheet_data = fetch_sheet_data("KRX_DATA" if market == "한국" else "US_DATA")
+                with st.spinner(f"가치 지표 데이터베이스 동기화 중..."):
+                    sector_map = sync_market_sectors_v8(market) if asset_type == "일반 주식" else {}
+                    sheet_data = fetch_sheet_data("KRX_DATA" if market == "한국" else "US_DATA") if asset_type == "일반 주식" else {}
 
                 matched_stocks, debug_list = {}, []
-                name_map = get_market_database(market)
+                name_map = get_market_database(market, asset_type)
                 valid_investor_tickers = set(db.keys())
 
-                if market == "한국" and investor_type != "조건없음":
-                    with st.spinner(f"수급 분석 중... (최근 {investor_total_days}일 중 {investor_buy_days}일 {investor_type})"):
+                if market == "한국" and asset_type == "일반 주식" and investor_type != "조건없음":
+                    with st.spinner(f"수급 분석 중..."):
                         passed_tickers = set()
                         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as exc:
                             futures = {exc.submit(check_investor_streak_naver, t, investor_type, investor_total_days, investor_buy_days, investor_min_pct): t for t in valid_investor_tickers}
                             for f in as_completed(futures):
                                 if f.result(): passed_tickers.add(futures[f])
                         valid_investor_tickers = passed_tickers
-                        if not valid_investor_tickers: st.warning("수급 조건을 만족하는 종목이 없습니다.")
 
                 for ticker, df in db.items():
-                    if sector_cond != "조건없음" and sector_map.get(ticker, "미분류") != sector_cond: continue
+                    if asset_type == "일반 주식" and sector_cond != "조건없음" and sector_map.get(ticker, "미분류") != sector_cond: continue
                     if len(df) < 60: continue
                         
-                    t_per = sheet_data.get(ticker, {}).get("PER", 0.0)
-                    t_pbr = sheet_data.get(ticker, {}).get("PBR", 0.0)
-                    t_foreign_rate = sheet_data.get(ticker, {}).get("Foreigner", 0.0)
-                    
-                    if per_cond > 0 and (t_per <= 0 or t_per > per_cond): continue
-                    if pbr_cond > 0 and (t_pbr <= 0 or t_pbr > pbr_cond): continue
-                    if k_foreigner_rate > 0 and t_foreign_rate < k_foreigner_rate: continue
+                    t_per, t_pbr, t_foreign_rate = 0.0, 0.0, 0.0
+                    if asset_type == "일반 주식":
+                        t_per = sheet_data.get(ticker, {}).get("PER", 0.0)
+                        t_pbr = sheet_data.get(ticker, {}).get("PBR", 0.0)
+                        t_foreign_rate = sheet_data.get(ticker, {}).get("Foreigner", 0.0)
+                        
+                        if per_cond > 0 and (t_per <= 0 or t_per > per_cond): continue
+                        if pbr_cond > 0 and (t_pbr <= 0 or t_pbr > pbr_cond): continue
+                        if k_foreigner_rate > 0 and t_foreign_rate < k_foreigner_rate: continue
 
-                    if market == "한국" and investor_type != "조건없음" and ticker not in valid_investor_tickers: continue
+                    if market == "한국" and asset_type == "일반 주식" and investor_type != "조건없음" and ticker not in valid_investor_tickers: continue
                     if df["Volume_line"].iloc[-1] == 0 or df["Volume_line"].iloc[-2] == 0: continue
 
                     year_high, year_low, band_position = 0, 0, 0
                     try:
-                        last_year_df = df.tail(252 if timeframe == "일봉" else 52)
+                        last_year_df = df.tail(252)
                         year_high, year_low = last_year_df["High_line"].max(), last_year_df["Low_line"].min()
                     except: pass
 
@@ -706,14 +740,6 @@ def start_100b_dashboard():
                     if ma_cross_cond == "적용":
                         if not (df["Close_line"].rolling(ma_short).mean().iloc[-2] <= df["Close_line"].rolling(ma_long).mean().iloc[-2] and df["Close_line"].rolling(ma_short).mean().iloc[-1] > df["Close_line"].rolling(ma_long).mean().iloc[-1]): continue
 
-                    if ma_up_cond == "적용":
-                        ma_up_series = df["Close_line"].rolling(ma_up_n).mean()
-                        is_rising = True
-                        for i in range(ma_up_m):
-                            if len(ma_up_series) < i + 2 or not (ma_up_series.iloc[-(i + 1)] > ma_up_series.iloc[-(i + 2)]):
-                                is_rising = False; break
-                        if not is_rising: continue
-
                     if macd_cond == "0선돌파" and not (prev["MACD"] <= 0 and latest["MACD"] > 0): continue
                     if macd_cond == "골든크로스" and not (prev["MACD"] <= prev["MACD_Signal"] and latest["MACD"] > latest["MACD_Signal"]): continue
 
@@ -731,16 +757,12 @@ def start_100b_dashboard():
 
                     matched_stocks[ticker] = df
                     debug_list.append({
-                        "티커": ticker,
-                        "종목명": name_map.get(ticker, ticker),
+                        "티커": ticker, "종목명": name_map.get(ticker, ticker),
                         "현재가": f"{cp:,.0f}" if market == "한국" else f"{cp:,.2f}",
                         "1년고": f"{year_high:,.0f}" if pd.notna(year_high) and year_high > 0 else "0",
                         "1년저": f"{year_low:,.0f}" if pd.notna(year_low) and year_low > 0 else "0",
-                        "고저밴드": f"{band_position:.1f}%",
-                        "RSI": round(latest["RSI"], 1),
-                        "Stoch %K": round(latest["Stoch_K"], 1),
-                        "거래량 비율": f"{vol_ratio:.1f}%",
-                        "당일거래량": float(latest["Volume_line"]),
+                        "고저밴드": f"{band_position:.1f}%", "RSI": round(latest["RSI"], 1), "Stoch %K": round(latest["Stoch_K"], 1),
+                        "거래량 비율": f"{vol_ratio:.1f}%", "당일거래량": float(latest["Volume_line"]),
                         "PER": t_per, "PBR": t_pbr, "지분율": t_foreign_rate,
                     })
 
@@ -750,29 +772,27 @@ def start_100b_dashboard():
                     debug_list = debug_list[:20]
                     matched_stocks = {k: v for k, v in matched_stocks.items() if k in top_tickers}
 
-                st.session_state.update({"matched_stocks": matched_stocks if matched_stocks else "NONE", "debug_list": debug_list, "current_market": market, "filtered_list": debug_list})
+                st.session_state.update({"matched_stocks": matched_stocks if matched_stocks else "NONE", "debug_list": debug_list, "current_market": market, "filtered_list": debug_list, "current_asset_type": asset_type})
 
         if st.session_state.get("matched_stocks") == "NONE": st.error("조건에 맞는 종목이 없습니다.")
         elif isinstance(st.session_state.get("matched_stocks"), dict) and st.session_state.get("matched_stocks"):
-            ms, dl, c_m = st.session_state["matched_stocks"], st.session_state["debug_list"], st.session_state["current_market"]
-            n_map = get_market_database(c_m)
-            sector_map = sync_market_sectors_v8(c_m)
+            ms, dl, c_m, c_a = st.session_state["matched_stocks"], st.session_state["debug_list"], st.session_state["current_market"], st.session_state.get("current_asset_type", "일반 주식")
+            n_map = get_market_database(c_m, c_a)
+            sector_map = sync_market_sectors_v8(c_m) if c_a == "일반 주식" else {}
 
             now_kst = datetime.datetime.now(pytz.timezone("Asia/Seoul"))
-            data_time_str = f"{(now_kst - datetime.timedelta(days=1)).strftime('%Y년 %m월 %d일')} (장 마감 전 기준)" if now_kst.hour < 15 or (now_kst.hour == 15 and now_kst.minute < 30) else f"{now_kst.strftime('%Y년 %m월 %d일 %H시 %M분')} (장 마감 후 기준)"
-            st.info(f"🕒 데이터 기준 시점: {data_time_str}")
+            st.info(f"🕒 실시간 주가 동기화 시점: {now_kst.strftime('%Y-%m-%d %H:%M:%S')}")
 
-            kw = st.text_input("결과 내 검색", placeholder="삼성, AAPL 등").lower()
+            kw = st.text_input("결과 내 검색", placeholder="종목명 또는 티커 입력").lower()
             filtered_list = [d for d in dl if kw in d["종목명"].lower() or kw in d["티커"].lower()]
 
             if not filtered_list: st.warning("매칭되는 종목이 없습니다.")
             else:
-                st.success(f"총 {len(filtered_list)}개 종목 매칭 성공!")
-                export_dl = [{"순번": i + 1, "티커": item["티커"], "종목명": item["종목명"], "섹터": sector_map.get(item["티커"], "미분류"), "현재가": item["현재가"], "1년고": item.get("1년고", "-"), "1년저": item.get("1년저", "-"), "고저밴드(%)": item.get("고저밴드", "0%"), "RSI": float(item.get("RSI", 0)), "ST": float(item.get("Stoch %K", 0)), "거래량%": item.get("거래량 비율", "0%"), "PER": float(item.get("PER", 0)), "PBR": float(item.get("PBR", 0)), "지분율(%)": float(item.get("지분율", 0))} for i, item in enumerate(filtered_list)]
+                st.success(f"총 {len(filtered_list)}개 자산 매칭 성공!")
+                export_dl = [{"순번": i + 1, "티커": item["티커"], "종목명": item["종목명"], "섹터": sector_map.get(item["티커"], "ETF 상품" if c_a=="ETF 전용" else "미분류"), "현재가": item["현재가"], "1년고": item.get("1년고", "-"), "1년저": item.get("1년저", "-"), "고저밴드(%)": item.get("고저밴드", "0%"), "RSI": float(item.get("RSI", 0)), "ST": float(item.get("Stoch %K", 0)), "거래량%": item.get("거래량 비율", "0%"), "PER": float(item.get("PER", 0)), "PBR": float(item.get("PBR", 0)), "지분율(%)": float(item.get("지분율", 0))} for i, item in enumerate(filtered_list)]
                 csv_data_tab1 = pd.DataFrame(export_dl).to_csv(index=False).encode("utf-8-sig")
 
-                e_col1, e_col2 = st.columns([8, 2])
-                with e_col2: st.download_button("📥 검색결과 엑셀 다운로드", csv_data_tab1, "search_results.csv", "text/csv", use_container_width=True)
+                st.download_button("📥 검색결과 엑셀 다운로드", csv_data_tab1, "search_results.csv", "text/csv")
 
                 col_ratio_tab1 = [0.6, 1.4, 1.1, 1.8, 1.4, 1.2, 1.0, 1.0, 1.0, 0.8, 0.8, 1.0, 0.7, 0.7, 0.9]
                 h_cols = st.columns(col_ratio_tab1)
@@ -793,15 +813,15 @@ def start_100b_dashboard():
 
                         if st.session_state.get(f"show_input_{item['티커']}"):
                             i_cols = st.columns([1, 1, 1])
-                            target1 = i_cols[0].number_input("1차", key=f"price1_{item['티커']}", label_visibility="collapsed", placeholder="1차 매수가")
-                            target2 = i_cols[1].number_input("2차", key=f"price2_{item['티커']}", label_visibility="collapsed", placeholder="2차 매수가")
+                            target1 = i_cols[0].number_input("1차", key=f"price1_{item['티커']}", label_visibility="collapsed")
+                            target2 = i_cols[1].number_input("2차", key=f"price2_{item['티커']}", label_visibility="collapsed")
                             if i_cols[2].button("확정", key=f"save_{item['티커']}"):
                                 save_to_watchlist_local(item["티커"], item["종목명"], target1, target2)
                                 st.session_state[f"show_input_{item['티커']}"] = False; st.rerun()
 
                         cols[2].write(item["티커"])
                         cols[3].write(item["종목명"])
-                        cols[4].write(str(sector_map.get(item["티커"], "미분류"))[:8])
+                        cols[4].write("ETF 상품" if c_a == "ETF 전용" else str(sector_map.get(item["티커"], "미분류"))[:8])
                         cols[5].write(item["현재가"])
                         cols[6].write(item.get("1년고", "-"))
                         cols[7].write(item.get("1년저", "-"))
@@ -809,24 +829,24 @@ def start_100b_dashboard():
                         cols[9].write(str(item.get("RSI", 0)))
                         cols[10].write(str(item.get("Stoch %K", 0)))
                         cols[11].write(item.get("거래량 비율", "0%"))
-                        cols[12].write(f"{item.get('PER', 0):.2f}" if item.get("PER", 0) > 0 else "N/A")
-                        cols[13].write(f"{item.get('PBR', 0):.2f}" if item.get("PBR", 0) > 0 else "N/A")
-                        cols[14].write(f"{item.get('지분율', 0):.2f}%" if item.get("지분율", 0) > 0 else "N/A")
+                        cols[12].write(f"{item.get('PER', 0):.2f}" if c_a == "일반 주식" and item.get("PER", 0) > 0 else "N/A")
+                        cols[13].write(f"{item.get('PBR', 0):.2f}" if c_a == "일반 주식" and item.get("PBR", 0) > 0 else "N/A")
+                        cols[14].write(f"{item.get('지분율', 0):.2f}%" if c_a == "일반 주식" and item.get("지분율", 0) > 0 else "N/A")
                         st.divider()
 
                 sel_tk = st.session_state["selected_ticker"]
                 if sel_tk != "NONE":
                     st.divider()
-                    st.subheader(f"📊 {sel_tk} ({n_map.get(sel_tk, '')}) 종합 투자 분석")
+                    st.subheader(f"📊 {sel_tk} ({n_map.get(sel_tk, '')}) 종합 차트 및 보조지표 분석")
 
-                    sheet_anal = fetch_sheet_data("KRX_DATA" if c_m == "한국" else "US_DATA")
-                    f_per, f_pbr, f_fr = sheet_anal.get(sel_tk, {}).get("PER", 0.0), sheet_anal.get(sel_tk, {}).get("PBR", 0.0), sheet_anal.get(sel_tk, {}).get("Foreigner", 0.0)
-                    
-                    mc1, mc2, mc3 = st.columns(3)
-                    mc1.metric("PER (시트)", f"{f_per:.2f}" if f_per > 0 else "N/A")
-                    mc2.metric("PBR (시트)", f"{f_pbr:.2f}" if f_pbr > 0 else "N/A")
-                    mc3.metric("외국인/기관 보유율", f"{f_fr:.2f}%" if f_fr > 0 else "N/A")
-                    st.divider()
+                    if c_a == "일반 주식":
+                        sheet_anal = fetch_sheet_data("KRX_DATA" if c_m == "한국" else "US_DATA")
+                        f_per, f_pbr, f_fr = sheet_anal.get(sel_tk, {}).get("PER", 0.0), sheet_anal.get(sel_tk, {}).get("PBR", 0.0), sheet_anal.get(sel_tk, {}).get("Foreigner", 0.0)
+                        mc1, mc2, mc3 = st.columns(3)
+                        mc1.metric("PER (시트)", f"{f_per:.2f}" if f_per > 0 else "N/A")
+                        mc2.metric("PBR (시트)", f"{f_pbr:.2f}" if f_pbr > 0 else "N/A")
+                        mc3.metric("외국인/기관 보유율", f"{f_fr:.2f}%" if f_fr > 0 else "N/A")
+                        st.divider()
 
                     tf = st.radio("시간 축", ["일봉", "주봉", "60분봉"], horizontal=True, key="time_frame_radio")
                     df = fetch_specific_timeframe_data(sel_tk, tf)
@@ -859,10 +879,6 @@ def start_100b_dashboard():
                             fig.add_trace(go.Scatter(x=idx, y=df["Close_line"].rolling(5).mean(), line=dict(color="#FF1493", width=1.5), name="5이평"), row=1, col=1)
                             fig.add_trace(go.Scatter(x=idx, y=df["Close_line"].rolling(20).mean(), line=dict(color="#FFD700", width=1.5), name="20이평"), row=1, col=1)
                             fig.add_trace(go.Scatter(x=idx, y=df["Close_line"].rolling(60).mean(), line=dict(color="#00BFFF", width=1.5), name="60이평"), row=1, col=1)
-                        if ma_cond != "조건없음": fig.add_trace(go.Scatter(x=idx, y=df["Close_line"].rolling(ma_n).mean(), line=dict(color="#00FF00", width=2), name=f"{ma_n}이평"), row=1, col=1)
-                        if ma_cross_cond == "적용":
-                            fig.add_trace(go.Scatter(x=idx, y=df["Close_line"].rolling(ma_short).mean(), line=dict(color="#00FFFF", width=2), name=f"{ma_short}단기"), row=1, col=1)
-                            fig.add_trace(go.Scatter(x=idx, y=df["Close_line"].rolling(ma_long).mean(), line=dict(color="#FF4500", width=2), name=f"{ma_long}장기"), row=1, col=1)
 
                         current_row = 2
                         for subplot in active_subplots:
@@ -878,7 +894,7 @@ def start_100b_dashboard():
                                 fig.add_hline(y=20, line_dash="dot", line_color="green", row=current_row, col=1)
                                 fig.update_yaxes(title_text="<b>STOCH</b>", title_font=dict(size=12, color="darkcyan"), range=[0, 100], fixedrange=True, row=current_row, col=1)
                             elif subplot == "MACD":
-                                fig.add_trace(go.Bar(x=idx, y=df["MACD_Hist"], marker_color="gray", name="MACD Hist"), row=current_row, col=1)
+                                fig.add_trace(go.Bar(go.Bar(x=idx, y=df["MACD_Hist"], marker_color="gray", name="MACD Hist"), row=current_row, col=1))
                                 fig.add_trace(go.Scatter(x=idx, y=df["MACD"], line=dict(color="blue"), name="MACD"), row=current_row, col=1)
                                 fig.add_trace(go.Scatter(x=idx, y=df["MACD_Signal"], line=dict(color="orange", dash="dot"), name="Signal"), row=current_row, col=1)
                                 fig.update_yaxes(title_text="<b>MACD</b>", title_font=dict(size=12, color="blue"), row=current_row, col=1)
@@ -894,7 +910,7 @@ def start_100b_dashboard():
                         st.divider()
 
     # =======================================================================
-    # ⭐ 탭 2: 관심종목 관리 화면
+    # ⭐ tab2: 관심종목 관리 화면은 그대로 유지됩니다.
     # =======================================================================
     with tab2:
         st.subheader("⭐ 나의 관심종목 포트폴리오")
@@ -905,7 +921,7 @@ def start_100b_dashboard():
             with c_add2:
                 if st.button("🌟 관심종목 추가", use_container_width=True, type="primary") and custom_input.strip():
                     search_term, search_term_upper = custom_input.strip(), custom_input.strip().upper()
-                    rev_map_kr, name_map_us = get_krx_full_search_map(), get_market_database("미국")
+                    rev_map_kr, name_map_us = get_krx_full_search_map(), get_market_database("미국", "일반 주식")
                     name_map_kr, rev_map_us = {v: k for k, v in rev_map_kr.items()}, {v: k for k, v in name_map_us.items()}
                     final_ticker, final_name = "", ""
                     
@@ -1041,5 +1057,5 @@ def start_100b_dashboard():
 
 if __name__ == "__main__":
     if "streamlit" not in sys.modules and not sys.argv[0].endswith("streamlit"):
-        print("\n" + "="*60 + "\n🚨 주의: 터미널(Shell)에 아래 명령어를 입력하여 실행해주세요:\n    👉  streamlit run main.py\n" + "="*60 + "\n")
+        print("\n" + "="*60 + "\n🚨 전용 웹 구동기 작동 필요\n" + "="*60 + "\n")
     else: start_100b_dashboard()
