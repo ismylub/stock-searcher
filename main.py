@@ -872,6 +872,26 @@ def start_100b_dashboard():
                         cols[14].write(f"{item.get('지분율', 0):.2f}%" if c_a == "일반 주식" and item.get("지분율", 0) > 0 else "N/A")
                         st.divider()
 
+                @st.cache_data(ttl=86400, show_spinner=False)
+                def fetch_official_etf_summary(ticker, market):
+                    try:
+                        if market == "한국":
+                            from bs4 import BeautifulSoup
+                            import requests
+                            code = ticker.split(".")[0]
+                            url = f"https://finance.naver.com/item/main.naver?code={code}"
+                            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+                            soup = BeautifulSoup(res.text, 'html.parser')
+                            summary = soup.select_one('.summary_info p')
+                            if summary: return summary.text.strip()
+                            return "네이버 금융에서 공식 설명을 제공하지 않는 종목입니다."
+                        else:
+                            import yfinance as yf
+                            info = yf.Ticker(ticker).info
+                            return info.get('longBusinessSummary', '공식 운용 설명(Prospectus)이 제공되지 않는 종목입니다.')
+                    except Exception:
+                        return "설명 데이터를 불러오는 중 일시적인 오류가 발생했습니다."
+
                 sel_tk = st.session_state["selected_ticker"]
                 if sel_tk != "NONE":
                     st.divider()
@@ -884,6 +904,12 @@ def start_100b_dashboard():
                         mc1.metric("PER (시트)", f"{f_per:.2f}" if f_per > 0 else "N/A")
                         mc2.metric("PBR (시트)", f"{f_pbr:.2f}" if f_pbr > 0 else "N/A")
                         mc3.metric("외국인/기관 보유율", f"{f_fr:.2f}%" if f_fr > 0 else "N/A")
+                        st.divider()
+                    else:
+                        # 🌟 ETF 공식 설명서 크롤링 및 표시 영역
+                        with st.spinner("ETF 공식 운용 설명서(Prospectus) 불러오는 중..."):
+                            etf_desc = fetch_official_etf_summary(sel_tk, c_m)
+                        st.info(f"**📖 ETF 운용 개요 (자산운용사 공식 설명)**\n\n{etf_desc}")
                         st.divider()
 
                     tf = st.radio("시간 축", ["일봉", "주봉", "60분봉"], horizontal=True, key="time_frame_radio")
