@@ -271,7 +271,7 @@ def format_trend_html(trend_str):
 # =======================================================================
 def start_100b_dashboard():
     def reset_all_filters():
-        defaults = {"k_market": "한국", "k_asset_type": "일반 주식", "k_array": "조건없음", "k_ma_n": 20, "k_ma_cond": "조건없음", "k_ichi": "조건없음", "k_bb": "조건없음", "k_macd": "조건없음", "k_rsi": (0, 100), "k_stoch": "조건없음", "k_vol": "조건없음", "k_vol_n": 20, "k_inv_type": "조건없음", "k_inv_m": 5, "k_inv_n": 3, "k_inv_pct": 5.0, "k_vol_rank": False, "k_ma_s": 5, "k_ma_l": 120, "k_ma_c": "조건없음", "k_bb_sq": False, "k_bb_sq_n": 20, "k_bb_sq_pct": 5.0, "k_maup_n": 20, "k_maup_m": 5, "k_maup_cond": "조건없음", "k_drop_cond": False, "k_drop_target": 30, "k_drop_margin": 5, "k_per": 0.0, "k_pbr": 0.0, "k_foreigner_rate": 0.0, "k_trend_cond": "조건없음"}
+        defaults = {"k_market": "한국", "k_asset_type": "일반 주식", "k_array": "조건없음", "k_ma_n": 20, "k_ma_cond": "조건없음", "k_ichi": "조건없음", "k_bb": "조건없음", "k_macd": "조건없음", "k_rsi": (0, 100), "k_stoch": "조건없음", "k_vol": "조건없음", "k_vol_n": 20, "k_inv_type": "조건없음", "k_inv_m": 5, "k_inv_n": 3, "k_inv_pct": 5.0, "k_vol_rank": False, "k_ma_s": 5, "k_ma_l": 120, "k_ma_c": "조건없음", "k_bb_sq": False, "k_bb_sq_n": 20, "k_bb_sq_pct": 5.0, "k_maup_n": 20, "k_maup_m": 5, "k_maup_cond": "조건없음", "k_drop_cond": False, "k_drop_target": 30, "k_drop_margin": 5, "k_per": 0.0, "k_pbr": 0.0, "k_foreigner_rate": 0.0, "k_trend_buy_pct": 0}
         for k, v in defaults.items(): st.session_state[k] = v
         if "matched_stocks" in st.session_state: del st.session_state["matched_stocks"]
 
@@ -318,7 +318,7 @@ def start_100b_dashboard():
                 new_preset_name = st.text_input("현재 조건 이름 지정", placeholder="예: 20선터치, 거래량 폭발", label_visibility="collapsed")
                 if st.button("💾 현재 세팅 저장", use_container_width=True):
                     if new_preset_name.strip():
-                        keys_to_save = ["k_market", "k_asset_type", "k_array", "k_ma_n", "k_ma_cond", "k_ichi", "k_bb", "k_macd", "k_rsi", "k_stoch", "k_vol", "k_vol_n", "k_inv_type", "k_inv_m", "k_inv_n", "k_inv_pct", "k_vol_rank", "k_ma_s", "k_ma_l", "k_ma_c", "k_bb_sq", "k_bb_sq_n", "k_bb_sq_pct", "k_maup_n", "k_maup_m", "k_maup_cond", "k_drop_cond", "k_drop_target", "k_drop_margin", "k_per", "k_pbr", "k_foreigner_rate", "k_trend_cond"]
+                        keys_to_save = ["k_market", "k_asset_type", "k_array", "k_ma_n", "k_ma_cond", "k_ichi", "k_bb", "k_macd", "k_rsi", "k_stoch", "k_vol", "k_vol_n", "k_inv_type", "k_inv_m", "k_inv_n", "k_inv_pct", "k_vol_rank", "k_ma_s", "k_ma_l", "k_ma_c", "k_bb_sq", "k_bb_sq_n", "k_bb_sq_pct", "k_maup_n", "k_maup_m", "k_maup_cond", "k_drop_cond", "k_drop_target", "k_drop_margin", "k_per", "k_pbr", "k_foreigner_rate", "k_trend_buy_pct"]
                         current_data = {}
                         for k in keys_to_save:
                             val = st.session_state.get(k)
@@ -334,6 +334,7 @@ def start_100b_dashboard():
                                 elif k == "k_market": val = "한국"
                                 elif k == "k_asset_type": val = "일반 주식"
                                 elif k in ["k_per", "k_pbr", "k_foreigner_rate"]: val = 0.0
+                                elif k == "k_trend_buy_pct": val = 0
                                 else: val = "조건없음"
                             current_data[k] = val
                         save_filter_preset(new_preset_name.strip(), current_data); st.rerun()
@@ -395,10 +396,9 @@ def start_100b_dashboard():
                     fr_label = "외인지분(%)" if market == "한국" else "기관지분(%)"
                     k_foreigner_rate = st.number_input(f"{fr_label} 이상 (0=미적용)", min_value=0.0, max_value=100.0, value=st.session_state.get("k_foreigner_rate", 0.0), step=1.0, key="k_foreigner_rate")
                     
-                    st.markdown('<div class="inline-label" style="margin-bottom: 5px; margin-top: 5px;">수급 추세 (최근 60일)</div>', unsafe_allow_html=True)
-                    trend_cond = st.selectbox("수급 추세", ["조건없음", "매수 우위", "매도 우위"], label_visibility="collapsed", key="k_trend_cond")
+                    k_trend_buy_pct = st.number_input("60일 매수비율(%) 이상 (0=미적용)", min_value=0, max_value=100, value=st.session_state.get("k_trend_buy_pct", 0), step=5, key="k_trend_buy_pct")
             else:
-                per_cond, pbr_cond, k_foreigner_rate, trend_cond = 0.0, 0.0, 0.0, "조건없음"
+                per_cond, pbr_cond, k_foreigner_rate, k_trend_buy_pct = 0.0, 0.0, 0.0, 0
                 st.info("💡 ETF 모드에서는 재무 가치 지표 및 메인 수급 필터가 자동으로 제외됩니다.")
 
             btn_label = "📊 우량 ETF 초고속 스캔 (실행)" if asset_type == "ETF 전용" else "🚀 글로벌 데이터 초고속 스캔 (실행)"
@@ -456,15 +456,13 @@ def start_100b_dashboard():
                     
                     t_trend = supply_trend_map.get(ticker, "데이터 없음")
                     
-                    if trend_cond != "조건없음" and asset_type == "일반 주식":
+                    if k_trend_buy_pct > 0 and asset_type == "일반 주식":
                         if "매수" not in t_trend:
                             continue 
                         try:
                             parts = t_trend.split(" / ")
                             buy_val = int(re.sub(r'[^0-9]', '', parts[0])) 
-                            if trend_cond == "매수 우위" and buy_val < 50:
-                                continue 
-                            if trend_cond == "매도 우위" and buy_val >= 50:
+                            if buy_val < k_trend_buy_pct:
                                 continue 
                         except:
                             continue
