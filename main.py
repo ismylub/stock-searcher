@@ -551,7 +551,7 @@ def start_100b_dashboard():
                 
                 # 🌟 [헤더 텍스트 변경: 한국=외인%, 미국=기관%]
                 fr_header_text = "외인지분(%)" if c_m == "한국" else "기관지분(%)"
-                col_ratio_tab1 = [0.7, 1.6, 1.3, 1.5, 1.2, 1.2, 1.2, 1.2, 1.0, 1.0, 1.5]
+                col_ratio_tab1 = [0.6, 1.4, 1.3, 1.5, 1.2, 1.2, 1.2, 1.2, 1.0, 1.0, 1.5]
                 h_cols = st.columns(col_ratio_tab1)
                 for i, h in enumerate(["순번", "선택", "티커", "종목명", "섹터", "현재가", "1년고", "1년저", "고저밴드", fr_header_text, "수급추세"]): 
                     h_cols[i].write(f"**{h}**")
@@ -562,10 +562,10 @@ def start_100b_dashboard():
                         cols = st.columns(col_ratio_tab1)
                         cols[0].write(i + 1)
                         b_cols = cols[1].columns([1, 1])
-                        if b_cols[0].button("🔍분석", key=f"btn_anal_{i}_{item['티커']}"): st.session_state["selected_ticker"] = item["티커"]
-                        if item["티커"] in registered_tickers: b_cols[1].button("🔴등록", key=f"btn_reg_done_{i}_{item['티커']}", disabled=True, type="primary")
+                        if b_cols[0].button("분석", key=f"btn_anal_{i}_{item['티커']}"): st.session_state["selected_ticker"] = item["티커"]
+                        if item["티커"] in registered_tickers: b_cols[1].button("등록", key=f"btn_reg_done_{i}_{item['티커']}", disabled=True, type="primary")
                         else:
-                            if b_cols[1].button("💾등록", key=f"btn_reg_{i}_{item['티커']}"): st.session_state[f"show_input_{item['티커']}"] = True
+                            if b_cols[1].button("등록", key=f"btn_reg_{i}_{item['티커']}"): st.session_state[f"show_input_{item['티커']}"] = True
 
                         if st.session_state.get(f"show_input_{item['티커']}"):
                             i_cols = st.columns([1, 1, 1])
