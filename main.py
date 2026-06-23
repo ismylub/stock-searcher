@@ -652,7 +652,7 @@ def start_100b_dashboard():
             display_rows.sort(key=lambda x: {"종목명": x["nm"], "등록일 (최신순)": x["dt"], "현재가": x["price"], "1차매수 근접도(%)": x["diff1_pct"], "고저밴드(%)": x["band_pos"]}[sort_by], reverse=(sort_order == "내림차순"))
             
             # 섹터(기존 1) 제거로 비율 재조정 (총 9개 항목)
-            col_ratio_tab2 = [1.3, 0.8, 1.0, 0.8, 0.8, 0.6, 0.8, 1.4, 1.5]
+            col_ratio_tab2 = [1.3, 1.0, 1.0, 0.7, 0.7, 0.6, 1.0, 1.2, 2.0]
             hc = st.columns(col_ratio_tab2)
             for i, h in enumerate(["종목명", "등록일", "현재가", "1차매수", "2차매수", "고저", "외인(韓)/기관(美)%", "수급추세", "관리(수정/삭제)"]): 
                 hc[i].write(f"**{h}**")
