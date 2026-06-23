@@ -498,9 +498,9 @@ def start_100b_dashboard():
             else:
                 st.success(f"총 {len(filtered_list)}개 자산 매칭 성공!")
                 
-                fr_header_text = "외인지분(%)" if c_m == "한국" else "기관지분(%)"
+                fr_header_text = "외인(%)" if c_m == "한국" else "기관(%)"
                 # 섹터(기존 1.1)를 뺐으므로 나머지 비율을 살짝 늘려 공간 확보 (총 10개)
-                col_ratio_tab1 = [0.6, 1.4, 1.1, 1.8, 1.2, 1.0, 1.0, 1.0, 1.5, 1.5]
+                col_ratio_tab1 = [0.6, 1.4, 1.1, 1.8, 1.2, 1.0, 1.0, 1.0, 1.0, 1.5]
                 h_cols = st.columns(col_ratio_tab1)
                 for i, h in enumerate(["순번", "선택", "티커", "종목명", "현재가", "1년고", "1년저", "고저밴드", fr_header_text, "수급추세"]): 
                     h_cols[i].write(f"**{h}**")
