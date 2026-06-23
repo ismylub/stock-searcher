@@ -322,8 +322,8 @@ def format_trend_html(trend_str):
     parts = trend_str.split(" / ")
     if len(parts) == 2:
         buy_val = int(re.sub(r'[^0-9]', '', parts[0]))
-        buy_color = "#ff4b4b" if buy_val > 50 else "#555555"
-        sell_color = "#00bfff" if buy_val <= 50 else "#555555"
+        buy_color = "#ff4b4b" if buy_val >= 50 else "#555555"
+        sell_color = "#00bfff" if buy_val < 50 else "#555555"
         return f"<span style='color:{buy_color};font-weight:bold;'>{parts[0]}</span> / <span style='color:{sell_color};'>{parts[1]}</span>"
     return trend_str
 
@@ -332,16 +332,17 @@ def format_trend_html(trend_str):
 # =======================================================================
 def start_100b_dashboard():
     def reset_all_filters():
-        defaults = {"k_market": "한국", "k_asset_type": "일반 주식", "k_array": "조건없음", "k_ma_n": 20, "k_ma_cond": "조건없음", "k_ichi": "조건없음", "k_bb": "조건없음", "k_macd": "조건없음", "k_rsi": (0, 100), "k_stoch": "조건없음", "k_vol": "조건없음", "k_vol_n": 20, "k_inv_type": "조건없음", "k_inv_m": 5, "k_inv_n": 3, "k_inv_pct": 5.0, "k_vol_rank": False, "k_ma_s": 5, "k_ma_l": 120, "k_ma_c": "조건없음", "k_bb_sq": False, "k_bb_sq_n": 20, "k_bb_sq_pct": 5.0, "k_maup_n": 20, "k_maup_m": 5, "k_maup_cond": "조건없음", "k_sector": "조건없음", "k_drop_cond": False, "k_drop_target": 30, "k_drop_margin": 5, "k_per": 0.0, "k_pbr": 0.0, "k_foreigner_rate": 0.0}
+        # 🌟 수급 추세 필터 초기화 추가
+        defaults = {"k_market": "한국", "k_asset_type": "일반 주식", "k_array": "조건없음", "k_ma_n": 20, "k_ma_cond": "조건없음", "k_ichi": "조건없음", "k_bb": "조건없음", "k_macd": "조건없음", "k_rsi": (0, 100), "k_stoch": "조건없음", "k_vol": "조건없음", "k_vol_n": 20, "k_inv_type": "조건없음", "k_inv_m": 5, "k_inv_n": 3, "k_inv_pct": 5.0, "k_vol_rank": False, "k_ma_s": 5, "k_ma_l": 120, "k_ma_c": "조건없음", "k_bb_sq": False, "k_bb_sq_n": 20, "k_bb_sq_pct": 5.0, "k_maup_n": 20, "k_maup_m": 5, "k_maup_cond": "조건없음", "k_sector": "조건없음", "k_drop_cond": False, "k_drop_target": 30, "k_drop_margin": 5, "k_per": 0.0, "k_pbr": 0.0, "k_foreigner_rate": 0.0, "k_trend_cond": "조건없음"}
         for k, v in defaults.items(): st.session_state[k] = v
         if "matched_stocks" in st.session_state: del st.session_state["matched_stocks"]
 
-    st.set_page_config(page_title="나만의 주식 검색기 V7.1", layout="wide")
+    st.set_page_config(page_title="나만의 주식 검색기 V7.2", layout="wide")
     if "selected_ticker" not in st.session_state: st.session_state["selected_ticker"] = "NONE"
     registered_tickers = get_watchlist_df()["Ticker"].tolist()
 
     st.markdown("""<style>[data-testid="stSidebarUserContent"] { padding-top: 0rem !important; margin-top: -40px !important; } [data-testid="stSidebarUserContent"] h3 { font-size: 15px !important; margin-top: -20px !important; margin-bottom: -10px !important; } .inline-label { font-size: 13px !important; font-weight: bold; color: #333333; margin-top: -10px !important; margin-bottom: 2px !important; } div[data-baseweb="select"] { font-size: 12px !important; } div[data-baseweb="select"] > div { min-height: 40px !important; height: 40px !important; } [data-testid="stVerticalBlockBorderWrapper"] { padding: 5px 8px !important; margin-bottom: -20px !important; } .stButton button { min-height: 28px !important; height: 28px !important; font-size: 12px !important; padding: 0px 2px !important; white-space: nowrap !important; } hr { margin-top: 5px !important; margin-bottom: 5px !important; } [data-testid="stMarkdownContainer"] p { margin-bottom: 0px !important; } .stCheckbox { margin-top: 5px !important; } button[data-baseweb="tab"] { font-size: 16px !important; font-weight: bold !important; } div[data-testid="column"] p { font-size: 12px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; margin-bottom: 0px !important; letter-spacing: -0.5px; } div[data-testid="column"] button { font-size: 11px !important; padding: 0px 4px !important; }</style>""", unsafe_allow_html=True)
-    st.title("📈 100억 벌고 싶다 (V7.1 수급 디테일 완성)")
+    st.title("📈 100억 벌고 싶다 (V7.2 수급 추세 필터 장착)")
     st.divider()
 
     tab1, tab2 = st.tabs(["🔍 초고속 검색기", "⭐ 나의 관심종목 (신규 추가 가능)"])
@@ -379,7 +380,8 @@ def start_100b_dashboard():
                 new_preset_name = st.text_input("현재 조건 이름 지정", placeholder="예: 20선터치, 거래량 폭발", label_visibility="collapsed")
                 if st.button("💾 현재 세팅 저장", use_container_width=True):
                     if new_preset_name.strip():
-                        keys_to_save = ["k_market", "k_asset_type", "k_array", "k_ma_n", "k_ma_cond", "k_ichi", "k_bb", "k_macd", "k_rsi", "k_stoch", "k_vol", "k_vol_n", "k_inv_type", "k_inv_m", "k_inv_n", "k_inv_pct", "k_vol_rank", "k_ma_s", "k_ma_l", "k_ma_c", "k_bb_sq", "k_bb_sq_n", "k_bb_sq_pct", "k_maup_n", "k_maup_m", "k_maup_cond", "k_sector", "k_drop_cond", "k_drop_target", "k_drop_margin", "k_per", "k_pbr", "k_foreigner_rate"]
+                        # 🌟 수급 추세 필터 값 저장 목록에 추가
+                        keys_to_save = ["k_market", "k_asset_type", "k_array", "k_ma_n", "k_ma_cond", "k_ichi", "k_bb", "k_macd", "k_rsi", "k_stoch", "k_vol", "k_vol_n", "k_inv_type", "k_inv_m", "k_inv_n", "k_inv_pct", "k_vol_rank", "k_ma_s", "k_ma_l", "k_ma_c", "k_bb_sq", "k_bb_sq_n", "k_bb_sq_pct", "k_maup_n", "k_maup_m", "k_maup_cond", "k_sector", "k_drop_cond", "k_drop_target", "k_drop_margin", "k_per", "k_pbr", "k_foreigner_rate", "k_trend_cond"]
                         current_data = {}
                         for k in keys_to_save:
                             val = st.session_state.get(k)
@@ -456,10 +458,15 @@ def start_100b_dashboard():
                     c1, c2 = st.columns(2, gap="small")
                     with c1: per_cond = st.number_input("PER 이하 (0=미적용)", min_value=0.0, max_value=500.0, value=st.session_state.get("k_per", 0.0), step=1.0, key="k_per")
                     with c2: pbr_cond = st.number_input("PBR 이하 (0=미적용)", min_value=0.0, max_value=50.0, value=st.session_state.get("k_pbr", 0.0), step=0.1, key="k_pbr")
+                    
                     fr_label = "외인지분(%)" if market == "한국" else "기관지분(%)"
                     k_foreigner_rate = st.number_input(f"{fr_label} 이상 (0=미적용)", min_value=0.0, max_value=100.0, value=st.session_state.get("k_foreigner_rate", 0.0), step=1.0, key="k_foreigner_rate")
+                    
+                    # 🌟 [신규] 수급 추세 필터 기능 추가!
+                    st.markdown('<div class="inline-label" style="margin-bottom: 5px; margin-top: 5px;">수급 추세 (최근 60일)</div>', unsafe_allow_html=True)
+                    trend_cond = st.selectbox("수급 추세", ["조건없음", "매수 우위", "매도 우위"], label_visibility="collapsed", key="k_trend_cond")
             else:
-                per_cond, pbr_cond, k_foreigner_rate = 0.0, 0.0, 0.0
+                per_cond, pbr_cond, k_foreigner_rate, trend_cond = 0.0, 0.0, 0.0, "조건없음"
                 st.info("💡 ETF 모드에서는 재무 가치 지표 및 메인 수급 필터가 자동으로 제외됩니다.")
 
             btn_label = "📊 우량 ETF 초고속 스캔 (실행)" if asset_type == "ETF 전용" else "🚀 글로벌 데이터 초고속 스캔 (실행)"
@@ -516,11 +523,26 @@ def start_100b_dashboard():
                         if ma_cond == "위" and cp <= l_ma: continue
                         if ma_cond == "아래" and cp >= l_ma: continue
                         if ma_cond == "터치" and abs(cp - l_ma) / l_ma > 0.005: continue
-
-                    matched_stocks[ticker] = df
+                    
                     t_trend = supply_trend_map.get(ticker, "데이터 없음")
                     
-                    # 🌟 명확한 키값 할당 (결측치는 "-" 대신 "N/A" 사용)
+                    # 🌟 [신규] 수급 추세 (매수/매도 우위) 필터 적용
+                    if trend_cond != "조건없음" and asset_type == "일반 주식":
+                        if "매수" not in t_trend:
+                            continue # 데이터가 없는 종목은 필터 통과 못함
+                        try:
+                            # "매수 53% / 매도 47%" 형태에서 숫자만 추출
+                            parts = t_trend.split(" / ")
+                            buy_val = int(re.sub(r'[^0-9]', '', parts[0])) 
+                            if trend_cond == "매수 우위" and buy_val < 50:
+                                continue # 50% 미만이면 탈락
+                            if trend_cond == "매도 우위" and buy_val >= 50:
+                                continue # 50% 이상이면 탈락
+                        except:
+                            continue
+
+                    matched_stocks[ticker] = df
+                    
                     debug_list.append({
                         "티커": ticker, "종목명": name_map.get(ticker, ticker), 
                         "현재가": f"{cp:,.0f}" if market == "한국" else f"{cp:,.2f}", 
@@ -547,13 +569,12 @@ def start_100b_dashboard():
 
             if not filtered_list: st.warning("매칭되는 종목이 없습니다.")
             else:
-                st.success(f"총 {len(filtered_list)}개 자산 매칭 성공! (스캔 버튼을 꼭 눌러주세요)")
+                st.success(f"총 {len(filtered_list)}개 자산 매칭 성공!")
                 
-                # 🌟 [헤더 텍스트 변경: 한국=외인%, 미국=기관%]
-                fr_header_text = "외인(%)" if c_m == "한국" else "기관(%)"
+                fr_header_text = "외인지분(%)" if c_m == "한국" else "기관지분(%)"
                 col_ratio_tab1 = [0.7, 1.1, 1.3, 1.8, 1.2, 1.2, 1.2, 1.2, 1.0, 1.0, 1.5]
                 h_cols = st.columns(col_ratio_tab1)
-                for i, h in enumerate(["순번", "선택", "티커", "종목명", "섹터", "현재가", "1년고", "1년저", "고저", fr_header_text, "수급추세"]): 
+                for i, h in enumerate(["순번", "선택", "티커", "종목명", "섹터", "현재가", "1년고", "1년저", "고저밴드", fr_header_text, "수급추세"]): 
                     h_cols[i].write(f"**{h}**")
                 st.divider()
 
@@ -562,10 +583,10 @@ def start_100b_dashboard():
                         cols = st.columns(col_ratio_tab1)
                         cols[0].write(i + 1)
                         b_cols = cols[1].columns([1, 1])
-                        if b_cols[0].button("분석", key=f"btn_anal_{i}_{item['티커']}"): st.session_state["selected_ticker"] = item["티커"]
-                        if item["티커"] in registered_tickers: b_cols[1].button("등록", key=f"btn_reg_done_{i}_{item['티커']}", disabled=True, type="primary")
+                        if b_cols[0].button("🔍분석", key=f"btn_anal_{i}_{item['티커']}"): st.session_state["selected_ticker"] = item["티커"]
+                        if item["티커"] in registered_tickers: b_cols[1].button("🔴등록", key=f"btn_reg_done_{i}_{item['티커']}", disabled=True, type="primary")
                         else:
-                            if b_cols[1].button("등록", key=f"btn_reg_{i}_{item['티커']}"): st.session_state[f"show_input_{item['티커']}"] = True
+                            if b_cols[1].button("💾등록", key=f"btn_reg_{i}_{item['티커']}"): st.session_state[f"show_input_{item['티커']}"] = True
 
                         if st.session_state.get(f"show_input_{item['티커']}"):
                             i_cols = st.columns([1, 1, 1])
@@ -582,7 +603,6 @@ def start_100b_dashboard():
                         cols[6].write(item.get("1년고", "N/A"))
                         cols[7].write(item.get("1년저", "N/A"))
                         cols[8].write(item.get("고저밴드", "0%"))
-                        # 🌟 N/A 텍스트가 점으로 변하지 않도록 강제 문자열 출력
                         cols[9].text(item.get("외인기관율", "N/A"))
                         cols[10].markdown(format_trend_html(item.get("수급추세", "N/A")), unsafe_allow_html=True)
                         st.divider()
@@ -610,8 +630,6 @@ def start_100b_dashboard():
                         mc1, mc2, mc3 = st.columns(3)
                         mc1.metric("PER (가치 지표)", f"{f_per:.2f}" if c_a == "일반 주식" and f_per > 0 else "N/A")
                         mc2.metric("PBR (가치 지표)", f"{f_pbr:.2f}" if c_a == "일반 주식" and f_pbr > 0 else "N/A")
-                        
-                        # 🌟 동적 기관명 적용
                         fr_label_anal = "외인 보유율(%)" if c_m == "한국" else "기관 보유율(%)"
                         mc3.metric(fr_label_anal, f"{f_fr:.2f}%" if c_a == "일반 주식" and f_fr > 0 else "N/A")
                         
@@ -708,7 +726,6 @@ def start_100b_dashboard():
 
             display_rows.sort(key=lambda x: {"종목명": x["nm"], "등록일 (최신순)": x["dt"], "현재가": x["price"], "1차매수 근접도(%)": x["diff1_pct"], "고저밴드(%)": x["band_pos"]}[sort_by], reverse=(sort_order == "내림차순"))
             
-            # 🌟 헤더 통일: 한국-외인/미국-기관 이 모두 섞여 있으므로 포괄적인 제목 사용
             col_ratio_tab2 = [1.3, 0.8, 1, 1.0, 0.8, 0.8, 0.6, 0.8, 1.4, 1.5]
             hc = st.columns(col_ratio_tab2)
             for i, h in enumerate(["종목명", "등록일", "섹터", "현재가", "1차매수", "2차매수", "고저", "외인(韓)/기관(美)%", "수급추세", "관리(수정/삭제)"]): 
@@ -736,8 +753,6 @@ def start_100b_dashboard():
                         cc[5].markdown(f"<span>{f'{tg2:,.0f}' if tg2>1000 else f'{tg2:,.2f}'}</span> <span style='color:{'#ff4b4b' if diff2_pct>0 else '#00bfff'};font-size:12px;font-weight:bold;'>({'+' if diff2_pct>0 else ''}{diff2_pct:.2f}%)</span>", unsafe_allow_html=True)
                     else: cc[5].write(f"{tg2:,.0f}" if tg2 > 1000 else f"{tg2:,.2f}")
                     cc[6].write(f"{item['band_pos']:.1f}%")
-                    
-                    # 🌟 점(•) 방지: 강제 text 출력 및 N/A 처리
                     cc[7].text(f"{item['fr_rate']:.2f}%" if item['fr_rate'] > 0 else "N/A")
                     cc[8].markdown(format_trend_html(item['trend']), unsafe_allow_html=True)
 
