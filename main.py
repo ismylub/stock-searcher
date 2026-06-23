@@ -872,145 +872,75 @@ def start_100b_dashboard():
                         cols[14].write(f"{item.get('지분율', 0):.2f}%" if c_a == "일반 주식" and item.get("지분율", 0) > 0 else "N/A")
                         st.divider()
 
-                # ---------------------------------------------------------
-                # 🔍 [여기서부터 복사하세요] 분석 실행 및 가이드/차트 표시 영역
-                # ---------------------------------------------------------
                 @st.cache_data(ttl=86400, show_spinner=False)
                 def fetch_etf_beginner_guide(ticker, market, etf_name):
-                    try:
-                        if market == "한국":
-                            import requests
-                            from bs4 import BeautifulSoup
-                            import re
-                            code = ticker.split(".")[0]
-                            url = f"https://finance.naver.com/item/main.naver?code={code}"
-                            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-                            soup = BeautifulSoup(res.text, 'html.parser')
-                            
-                            index_name = "자산운용사 자체 지수 또는 액티브 운용"
-                            fee = "정보 없음"
-                            
-                            # 🎯 [정밀 타격] 엉뚱한 숫자 안 가져오게 '기초지수' 글자가 들어있는 th를 찾고 그 옆 td를 정확히 타격!
-                            for th in soup.find_all('th'):
-                                if "기초지수" in th.text:
-                                    td = th.find_next('td')
-                                    if td: index_name = td.text.strip().replace("\n", " ")
-                                if "보수" in th.text:
-                                    td = th.find_next('td')
-                                    if td: fee = td.text.strip()
-                                        
-                            guide = f"**💡 무엇에 투자하나요? (추종 지수)**\n- **{index_name}**의 움직임을 똑같이 따라가도록 설계된 상품입니다.\n\n"
-                            guide += f"**💰 펀드 운용 수수료**\n- **{fee}** (1년 동안 운용사가 떼어가는 비용입니다)\n\n"
-                            guide += f"**📌 종목명 기초 상식:**\n- **{etf_name}** (앞의 영어는 운용사 브랜드명, 뒤는 투자 테마를 의미합니다.)"
-                            
-                            if any(x in etf_name for x in ["레버리지", "인버스", "2X"]):
-                                guide += "\n\n⚠️ **초보자 주의:** 이 상품은 지수 변동성을 2배로 추종하거나 반대로 움직이는 고위험 상품입니다. 단기 대응용으로만 접근하세요!"
-                            return guide
-                            
-                        else:
-                            theme = etf_name
-                            desc = ""
-                            tip = ""
-                            
-                            if "S&P 500" in theme: desc = "미국 우량 대형주 500개에 투자하는 세계 1위 펀드입니다. 워렌 버핏이 가장 강력하게 추천하는 '근본' 상품입니다."
-                            elif "NASDAQ 100" in theme or "나스닥" in theme: desc = "애플, 엔비디아 등 미국을 이끄는 100개 혁신 기술주에 집중합니다. 시대의 흐름을 타는 가장 빠른 방법입니다."
-                            elif "배당" in theme or "인컴" in theme: desc = "주가 상승은 물론 따박따박 들어오는 배당금까지 챙기는 상품입니다. 마르지 않는 현금 파이프라인을 만들 때 필수입니다."
-                            elif "반도체" in theme: desc = "AI 시대의 필수 부품인 반도체 글로벌 리더(엔비디아, TSMC 등)들을 싹 쓸어 담은 핵심 테마입니다."
-                            elif "채권" in theme or "국채" in theme: desc = "주식 시장의 충격을 완화해주는 든든한 방패입니다. 금리가 내려갈 때 웃을 수 있는 안정적인 선택지입니다."
-                            elif "비트코인" in theme: desc = "가장 안전하고 합법적으로 비트코인 상승세에 올라타는 방법입니다. 코인 거래소 없이 주식 계좌로 편하게 투자하세요."
-                            elif any(x in theme for x in ["2배", "3배", "레버리지"]): desc = "수익이 2~3배로 폭발하지만 손실도 그만큼 빠릅니다. 야수의 심장을 가진 투자자를 위한 단기전 상품입니다."
-                            elif "인버스" in theme: desc = "주가가 떨어질 때 오히려 돈을 버는 하락장 전용 상품입니다. 폭락장에서 내 계좌를 지키는 보험과 같습니다."
-                            else: desc = f"글로벌 자본이 몰리는 **[{theme}]** 산업 전체에 분산 투자하여 리스크를 낮추고 성장을 누리는 상품입니다."
-
-                            if any(x in theme for x in ["2배", "3배", "인버스"]):
-                                tip = "⚠️ **절대 주의사항:** 주가가 제자리에 있어도 시간이 지나면 원금이 녹아내리는 상품입니다. 절대 '존버' 하지 마세요!"
-                            elif any(x in theme for x in ["배당", "인컴"]):
-                                tip = "✅ **전문가 팁:** 들어오는 배당금을 무조건 다시 재투자하세요. 시간이 지나면 복리의 마법이 계좌를 불려줍니다."
-                            elif any(x in theme for x in ["국채", "채권"]):
-                                tip = "✅ **전문가 팁:** 주식이 폭락할 때 채권은 버티는 경향이 있습니다. 포트폴리오의 에어백으로 10~20% 정도 섞어두세요."
-                            else:
-                                tip = "✅ **전문가 팁:** 개별 종목의 '악재'는 피하고 산업의 '성장'만 챙길 수 있는 가장 현명한 투자법입니다."
-
-                            return f"**💡 핵심 족집게 브리핑 ({theme})**\n- {desc}\n\n{tip}"
-                    except Exception:
-                        return "가이드 데이터를 구성하는 중 오류가 발생했습니다."
-
-                sel_tk = st.session_state["selected_ticker"]
-                if sel_tk != "NONE":
-                    st.divider()
-                    st.subheader(f"📊 {sel_tk} ({n_map.get(sel_tk, '')}) 종합 분석")
-
-                    if c_a == "일반 주식":
-                        sheet_anal = fetch_sheet_data("KRX_DATA" if c_m == "한국" else "US_DATA")
-                        f_per, f_pbr, f_fr = sheet_anal.get(sel_tk, {}).get("PER", 0.0), sheet_anal.get(sel_tk, {}).get("PBR", 0.0), sheet_anal.get(sel_tk, {}).get("Foreigner", 0.0)
-                        mc1, mc2, mc3 = st.columns(3)
-                        mc1.metric("PER (시트)", f"{f_per:.2f}" if f_per > 0 else "N/A")
-                        mc2.metric("PBR (시트)", f"{f_pbr:.2f}" if f_pbr > 0 else "N/A")
-                        mc3.metric("외국인/기관 보유율", f"{f_fr:.2f}%" if f_fr > 0 else "N/A")
-                        st.divider()
-                    else:
-                        with st.spinner("전문가용 ETF 브리핑 불러오는 중..."):
-                            etf_name_kr = n_map.get(sel_tk, sel_tk)
-                            etf_desc = fetch_etf_beginner_guide(sel_tk, c_m, etf_name_kr)
-                        st.info(f"**📖 ETF 1분 족집게 레포트**\n\n{etf_desc}")
-                        st.divider()
-
-                    tf = st.radio("시간 축", ["일봉", "주봉", "60분봉"], horizontal=True, key="time_frame_radio")
+                    theme = etf_name
+                    desc = ""
+                    tip = ""
                     
-                    # 🚀 [차트 복구 시작]
-                    df = fetch_specific_timeframe_data(sel_tk, tf)
-                    if df.empty: st.error("데이터 로드 실패")
+                    if market == "한국":
+                        # 🇰🇷 한국 ETF: 뻔한 설명 대신 상황별 '신박한' 활용법 매핑
+                        if "머니마켓" in theme or "CD금리" in theme or "KOFR" in theme or "단기채" in theme:
+                            desc = "은행의 '파킹통장'처럼, 하루만 넣어둬도 매일매일 이자가 붙는 현금 보관용 최고 안전 피난처입니다."
+                            tip = "✅ **신박한 활용법:** 당장 살 주식이 없거나 폭락장이 예상될 때, 예수금을 그냥 놀리지 말고 여기에 넣어두면 쏠쏠한 꽁돈(이자)이 생깁니다!"
+                        elif "200" in theme and ("KODEX" in theme or "TIGER" in theme or "RISE" in theme):
+                            desc = "삼성전자, 현대차 등 대한민국 주식시장을 이끄는 '국가대표 대형주 200개'를 하나로 묶어서 통째로 사는 상품입니다."
+                            tip = "✅ **신박한 활용법:** 한국 증시가 바닥을 치고 다시 살아날 것 같을 때, 개별 주식 고를 필요 없이 이거 하나면 시장 전체의 반등을 다 먹을 수 있습니다."
+                        elif "S&P" in theme or "S&P500" in theme:
+                            desc = "환전할 필요 없이, 한국 돈(원화)으로 미국 상위 500개 우량 기업의 성장을 그대로 누릴 수 있는 상품입니다."
+                            tip = "✅ **신박한 활용법:** ISA 계좌나 연금저축펀드 계좌에서 이 종목을 모아가면 세금 혜택까지 받으면서 워렌 버핏처럼 투자할 수 있습니다."
+                        elif "나스닥" in theme:
+                            desc = "애플, 엔비디아 등 미국의 혁신 기술주들에 원화로 편하게 투자하는 상품입니다."
+                            tip = "✅ **신박한 활용법:** 기술주는 변동성이 크기 때문에, 하락장일 때 줍줍(분할 매수)해두면 다음 상승장에서 가장 가파르게 오르는 효자 종목입니다."
+                        elif "배당" in theme or "커버드콜" in theme or "인컴" in theme:
+                            desc = "주가 상승보다는 '따박따박 들어오는 높은 배당금(월급)'을 목표로 하는 현금 창출용 거위입니다."
+                            tip = "✅ **신박한 활용법:** 은퇴를 앞두셨거나 매월 고정적인 현금흐름이 필요할 때 1순위로 고려해야 할 '제2의 월급통장'입니다."
+                        elif "2차전지" in theme:
+                            desc = "전기차 배터리 조립공정부터 전극 제조, 소재까지 2차전지 밸류체인 전체를 장바구니에 싹 쓸어 담은 테마입니다."
+                            tip = "✅ **신박한 활용법:** 2차전지는 산업 사이클을 크게 탑니다. 전기차 수요 둔화로 남들이 공포에 질려 던질 때가 사실 가장 좋은 역발상 매수 타이밍입니다."
+                        elif "반도체" in theme:
+                            desc = "AI 시대를 이끌어가는 핵심 부품인 반도체 관련 국내/해외 최고 기업들을 모아둔 상품입니다."
+                            tip = "✅ **신박한 활용법:** 특정 기업(삼성 vs SK 등) 중 누가 이길지 베팅하기 어려울 때, 이 테마를 사면 산업 전체의 성장을 챙길 수 있습니다."
+                        elif "방산" in theme:
+                            desc = "전 세계로 수출되며 위상을 높이고 있는 국내 방위산업(무기, 전차 등) 기업들에 집중 투자합니다."
+                            tip = "✅ **신박한 활용법:** 지정학적 갈등(전쟁, 분쟁) 뉴스가 터질 때마다 시장 지수와 반대로 주가가 급등하는 훌륭한 테마 방패입니다."
+                        elif "리츠" in theme or "부동산" in theme:
+                            desc = "수십억짜리 강남 빌딩을 살 돈이 없어도, 이 주식을 사면 다수의 빌딩에서 나오는 월세를 배당으로 나눠 받을 수 있습니다."
+                            tip = "✅ **신박한 활용법:** 금리가 내려갈 것으로 예상될 때 가장 빛을 발합니다. (대출 이자가 줄어들어 부동산 수익률이 급등하기 때문)"
+                        elif any(x in theme for x in ["레버리지", "2X"]):
+                            desc = "지수가 1% 오를 때 내 수익은 2배로 폭발하는 야수의 무기입니다. (하지만 떨어질 때도 2배로 떨어집니다!)"
+                            tip = "⚠️ **야수의 팁:** 절대 장투 금지! 시장이 오늘부터 '무조건 V자 반등한다'는 확실한 촉이 왔을 때만 짧게 치고 빠지는 용도입니다."
+                        elif "인버스" in theme:
+                            desc = "주식 시장이 '하락'해야만 내 계좌에 수익이 찍히는 공매도 성격의 상품입니다."
+                            tip = "⚠️ **야수의 팁:** 글로벌 악재가 터져서 시장이 당분간 계속 빠질 것 같을 때, 내 주식들의 손실을 퉁쳐주는 훌륭한 방어막입니다."
+                        else:
+                            desc = f"주식 시장의 **[{theme}]** 산업 트렌드와 성장에 베팅하는 상품입니다."
+                            tip = "✅ **신박한 활용법:** 이 테마 안에서 개별 기업 1~2개가 망하더라도, 산업 전체가 크면 펀드 가격은 오르기 때문에 스트레스 없는 트렌드 투자법입니다."
+
+                        return f"**💡 이건 어떤 종목인가요? (핵심 요약)**\n- {desc}\n\n{tip}"
+
                     else:
-                        active_subplots = []
-                        if rsi_show == "적용": active_subplots.append("RSI")
-                        if stoch_cond != "조건없음": active_subplots.append("STOCH")
-                        if macd_cond != "조건없음": active_subplots.append("MACD")
+                        # 🇺🇸 미국 ETF: 글로벌 시각의 신박한 활용법 매핑
+                        if "S&P 500" in theme: desc = "미국 우량 대형주 500개에 투자하는 세계 1위 펀드입니다. 워렌 버핏이 가장 강력하게 추천하는 '근본' 상품입니다."
+                        elif "NASDAQ 100" in theme or "나스닥" in theme: desc = "애플, 엔비디아 등 미국을 이끄는 100개 혁신 기술주에 집중합니다. 시대의 흐름을 타는 가장 빠른 방법입니다."
+                        elif "배당" in theme or "인컴" in theme: desc = "주가 상승은 물론 따박따박 들어오는 배당금까지 챙기는 상품입니다. 마르지 않는 현금 파이프라인을 만들 때 필수입니다."
+                        elif "반도체" in theme: desc = "AI 시대의 필수 부품인 반도체 글로벌 리더(엔비디아, TSMC 등)들을 싹 쓸어 담은 핵심 테마입니다."
+                        elif "채권" in theme or "국채" in theme: desc = "주식 시장의 충격을 완화해주는 든든한 방패입니다. 금리가 내려갈 때 웃을 수 있는 안정적인 선택지입니다."
+                        elif "비트코인" in theme: desc = "가장 안전하고 합법적으로 비트코인 상승세에 올라타는 방법입니다. 코인 거래소 없이 주식 계좌로 편하게 투자하세요."
+                        elif any(x in theme for x in ["2배", "3배", "레버리지"]): desc = "수익이 2~3배로 폭발하지만 손실도 그만큼 빠릅니다. 야수의 심장을 가진 투자자를 위한 단기전 상품입니다."
+                        elif "인버스" in theme: desc = "주가가 떨어질 때 오히려 돈을 버는 하락장 전용 상품입니다. 폭락장에서 내 계좌를 지키는 보험과 같습니다."
+                        else: desc = f"글로벌 자본이 몰리는 **[{theme}]** 산업 전체에 분산 투자하여 리스크를 낮추고 성장을 누리는 상품입니다."
 
-                        total_rows = 1 + len(active_subplots)
-                        row_heights = [1.0] if total_rows == 1 else [0.5] + [0.5 / len(active_subplots)] * len(active_subplots)
-                        specs = [[{"secondary_y": True}]] + [[{}]] * len(active_subplots)
-                        fig = make_subplots(rows=total_rows, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=row_heights, specs=specs)
-                        idx = df.index.astype(str) if tf == "60분봉" else df.index
+                        if any(x in theme for x in ["2배", "3배", "인버스"]):
+                            tip = "⚠️ **야수의 팁:** 주가가 제자리에 횡보만 해도 시간이 지나면 원금이 녹아내리는 구조입니다. 절대 '존버' 하지 마세요!"
+                        elif any(x in theme for x in ["배당", "인컴"]):
+                            tip = "✅ **신박한 활용법:** 들어오는 배당금을 안 쓰고 다시 그 주식을 사는 데 재투자해 보세요. 시간이 지나면 복리의 마법이 계좌를 눈더미처럼 불려줍니다."
+                        elif any(x in theme for x in ["국채", "채권"]):
+                            tip = "✅ **신박한 활용법:** 주식이 폭락할 때 안전자산인 채권은 버티거나 오히려 오르는 경향이 있습니다. 포트폴리오의 에어백으로 10~20% 정도 섞어두면 밤에 발 뻗고 잘 수 있습니다."
+                        else:
+                            tip = "✅ **신박한 활용법:** 개별 기업의 갑작스러운 '상장폐지'나 '오너 리스크'는 완벽하게 피하면서, 해당 산업의 '성장 과실'만 쏙쏙 빼먹을 수 있는 가장 영악한 투자법입니다."
 
-                        fig.add_trace(go.Candlestick(x=idx, open=df["Open_line"], high=df["High_line"], low=df["Low_line"], close=df["Close_line"], name="캔들"), row=1, col=1)
-                        vc = ["rgba(255,50,50,0.8)" if c >= o else "rgba(50,50,255,0.8)" for o, c in zip(df["Open_line"], df["Close_line"])]
-                        fig.add_trace(go.Bar(x=idx, y=df["Volume_line"], marker_color=vc, name="거래량"), row=1, col=1, secondary_y=True)
-
-                        if bb_cond != "조건없음" or st.session_state.get("k_bb_sq"):
-                            fig.add_trace(go.Scatter(x=idx, y=df["BB_High"], line=dict(color="#8A2BE2", dash="dot"), name="BB상단"), row=1, col=1)
-                            fig.add_trace(go.Scatter(x=idx, y=df["BB_Low"], line=dict(color="#8A2BE2", dash="dot"), fill="tonexty", fillcolor="rgba(138,43,226,0.05)", name="BB하단"), row=1, col=1)
-
-                        if ichi_cond != "조건없음":
-                            fig.add_trace(go.Scatter(x=idx, y=df["Ichimoku_SpanA"], line=dict(color="#00FA9A", width=1), name="일목A"), row=1, col=1)
-                            fig.add_trace(go.Scatter(x=idx, y=df["Ichimoku_SpanB"], line=dict(color="#FA8072", width=1), fill="tonexty", fillcolor="rgba(250,128,114,0.1)", name="일목B"), row=1, col=1)
-                        if array_cond != "조건없음":
-                            fig.add_trace(go.Scatter(x=idx, y=df["Close_line"].rolling(5).mean(), line=dict(color="#FF1493", width=1.5), name="5이평"), row=1, col=1)
-                            fig.add_trace(go.Scatter(x=idx, y=df["Close_line"].rolling(20).mean(), line=dict(color="#FFD700", width=1.5), name="20이평"), row=1, col=1)
-                            fig.add_trace(go.Scatter(x=idx, y=df["Close_line"].rolling(60).mean(), line=dict(color="#00BFFF", width=1.5), name="60이평"), row=1, col=1)
-
-                        current_row = 2
-                        for subplot in active_subplots:
-                            if subplot == "RSI":
-                                fig.add_trace(go.Scatter(x=idx, y=df["RSI"], line=dict(color="purple"), name="RSI"), row=current_row, col=1)
-                                fig.add_hline(y=70, line_dash="dot", line_color="orange", row=current_row, col=1); fig.add_hline(y=30, line_dash="dot", line_color="dodgerblue", row=current_row, col=1)
-                                fig.update_yaxes(title_text="<b>RSI</b>", range=[0, 100], row=current_row, col=1)
-                            elif subplot == "STOCH":
-                                fig.add_trace(go.Scatter(x=idx, y=df["Stoch_K"], line=dict(color="darkcyan"), name="%K"), row=current_row, col=1)
-                                fig.add_trace(go.Scatter(x=idx, y=df["Stoch_D"], line=dict(color="chocolate", dash="dot"), name="%D"), row=current_row, col=1)
-                                fig.add_hline(y=80, line_dash="dot", line_color="red", row=current_row, col=1); fig.add_hline(y=20, line_dash="dot", line_color="green", row=current_row, col=1)
-                                fig.update_yaxes(title_text="<b>STOCH</b>", range=[0, 100], row=current_row, col=1)
-                            elif subplot == "MACD":
-                                fig.add_trace(go.Bar(x=idx, y=df["MACD_Hist"], marker_color="gray", name="MACD Hist"), row=current_row, col=1)
-                                fig.add_trace(go.Scatter(x=idx, y=df["MACD"], line=dict(color="blue"), name="MACD"), row=current_row, col=1)
-                                fig.add_trace(go.Scatter(x=idx, y=df["MACD_Signal"], line=dict(color="orange", dash="dot"), name="Signal"), row=current_row, col=1)
-                                fig.update_yaxes(title_text="<b>MACD</b>", row=current_row, col=1)
-                            current_row += 1
-
-                        fig.update_yaxes(title_text="<b>주가</b>", row=1, col=1, secondary_y=False)
-                        fig.update_yaxes(title_text="<b>거래량</b>", showgrid=False, range=[0, df["Volume_line"].max() * 5], row=1, col=1, secondary_y=True)
-                        fig.update_layout(height=max(600, 400 + (len(active_subplots) * 200)), hovermode="x unified", dragmode="pan", margin=dict(l=80, r=40, t=40, b=40), xaxis_rangeslider_visible=False)
-                        st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True})
-                        st.divider()
+                        return f"**💡 이건 어떤 종목인가요? (핵심 요약)**\n- {desc}\n\n{tip}"
 
     # =======================================================================
     # ⭐ tab2: 관심종목 관리 화면은 그대로 유지됩니다.
