@@ -139,7 +139,6 @@ def fetch_sheet_data(sheet_name):
         return data_dict
     except: return {}
 
-# 🌟 [신규] 시트에서 60일 수급 히스토리를 가져와 N%/M% 계산하는 함수
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_supply_trend_data():
     conn = st.connection("gsheets", type=GSheetsConnection)
@@ -147,9 +146,8 @@ def fetch_supply_trend_data():
         df = conn.read(worksheet="수급히스토리", ttl=3600)
         if df.empty: return {}
         trend_map = {}
-        # 시트 컬럼: 일자, 티커, 외인순매수, 기관순매수 (최소 이 4개가 있어야 함)
         for ticker, group in df.groupby("티커"):
-            recent60 = group.tail(60) # 최근 60거래일
+            recent60 = group.tail(60)
             net_buy_days = ((pd.to_numeric(recent60.get("외인순매수", 0), errors='coerce').fillna(0) + 
                              pd.to_numeric(recent60.get("기관순매수", 0), errors='coerce').fillna(0)) > 0).sum()
             total_days = len(recent60)
@@ -159,7 +157,7 @@ def fetch_supply_trend_data():
                 trend_map[ticker] = f"매수 {buy_pct}% / 매도 {sell_pct}%"
         return trend_map
     except:
-        return {} # 시트가 없거나 오류 나면 빈 딕셔너리 반환
+        return {} 
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_krx_full_search_map():
@@ -183,9 +181,9 @@ def get_market_database(market_type, asset_type="일반 주식"):
             try:
                 df = fdr.StockListing("ETF/KR")
                 return {f"{str(row['Symbol']).zfill(6)}.KS": str(row["Name"]) for _, row in df.head(100).iterrows()}
-            except: return {"122630.KS": "KODEX 레버리지", "114800.KS": "KODEX 인버스"}
+            except: return {"122630.KS": "KODEX 레버리지"}
         else:
-            return {"SPY": "S&P 500", "IVV": "S&P 500", "VOO": "S&P 500", "QQQ": "NASDAQ 100", "QQQM": "NASDAQ 100 (저보수)", "DIA": "Dow Jones", "VTI": "미국 전체 주식", "IWM": "Russell 2000 (중소형주)", "SCHD": "미국 배당성장", "VIG": "배당성장", "VYM": "고배당", "JEPI": "프리미엄 인컴 (월배당)", "JEPQ": "나스닥 프리미엄 인컴", "DGRO": "배당성장", "NOBL": "배당귀족", "XLK": "기술주", "XLF": "금융주", "XLV": "헬스케어", "XLE": "에너지", "XLY": "임의소비재", "XLP": "필수소비재", "XLI": "산업재", "XLU": "유틸리티", "XLB": "소재", "XLRE": "부동산", "SOXX": "필라델피아 반도체", "SMH": "반도체 핵심", "IGV": "소프트웨어", "CIBR": "사이버보안", "HACK": "사이버보안", "SKYY": "클라우드", "IBB": "바이오테크", "XBI": "바이오테크 (균등)", "ARKK": "파괴적 혁신", "ARKG": "제노믹스", "ARKW": "차세대 인터넷", "TLT": "20년 이상 장기 국채", "IEF": "7-10년 중기 국채", "SHY": "1-3년 단기 국채", "AGG": "미국 종합 채권", "BND": "전체 채권 시장", "LQD": "투자등급 회사채", "HYG": "하이일드(정크) 본드", "JNK": "하이일드 본드", "GLD": "금 현물", "IAU": "금 현물", "SLV": "은 현물", "USO": "원유", "UNG": "천연가스", "URA": "우라늄", "COPX": "구리 채굴", "LIT": "리튬 & 배터리", "IBIT": "비트코인 현물", "FBTC": "비트코인 현물", "VUG": "대형 성장주", "VTV": "대형 가치주", "IWF": "Russell 1000 성장", "IWD": "Russell 1000 가치", "QUAL": "우량주", "MTUM": "모멘텀", "USMV": "저변동성", "SSO": "S&P 500 2배", "UPRO": "S&P 500 3배", "QLD": "NASDAQ 100 2배", "TQQQ": "NASDAQ 100 3배", "USD": "반도체 2배", "SOXL": "반도체 3배", "UCO": "원유 2배", "BOIL": "천연가스 2배", "CURE": "헬스케어 3배", "FAS": "금융 3배", "TECL": "기술주 3배", "TMF": "장기 국채 3배 (금리 인하 풀배팅)", "SH": "S&P 500 인버스 (-1배)", "SDS": "S&P 500 인버스 (-2배)", "SPXU": "S&P 500 인버스 (-3배)", "PSQ": "NASDAQ 인버스 (-1배)", "QID": "NASDAQ 인버스 (-2배)", "SQQQ": "NASDAQ 인버스 (-3배)", "SOXS": "반도체 인버스 (-3배)", "TZA": "중소형주 인버스 (-3배)", "KOLD": "천연가스 인버스 (-2배)", "TBF": "장기 국채 인버스 (-1배)", "TBT": "장기 국채 인버스 (-2배)", "TMV": "장기 국채 인버스 (-3배)"}
+            return {"SPY": "S&P 500", "QQQ": "NASDAQ 100"}
 
 @st.cache_data(ttl=14400, show_spinner=False)
 def build_database(market_type, timeframe="일봉", asset_type="일반 주식"):
@@ -240,9 +238,8 @@ def fetch_news_rss(query, category):
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         xml_data = get_urllib_opener().open(req, timeout=5).read()
-        root = ET.fromstring(xml_data)
         news_list = []
-        for item in root.findall(".//item")[:20]:
+        for item in ET.fromstring(xml_data).findall(".//item")[:20]:
             title, link, pub_date, source_tag, desc = item.find("title").text, item.find("link").text, item.find("pubDate").text, item.find("source"), item.find("description").text
             clean_desc = re.sub("<[^<]+?>", "", desc)
             clean_desc = clean_desc[:120] + "..." if len(clean_desc) > 120 else clean_desc
@@ -320,9 +317,8 @@ def toggle_news_state():
     st.session_state["show_news"] = not st.session_state.get("show_news", False)
     if st.session_state["show_news"] and "scraped_news" not in st.session_state: st.session_state["auto_fetch_news"] = True
 
-# 🌟 매수/매도 텍스트를 예쁘게 색칠해주는 함수
 def format_trend_html(trend_str):
-    if not trend_str or "매수" not in trend_str: return "데이터 없음"
+    if not trend_str or "매수" not in trend_str: return "<span style='color:#aaaaaa;'>데이터 없음</span>"
     parts = trend_str.split(" / ")
     if len(parts) == 2:
         buy_val = int(re.sub(r'[^0-9]', '', parts[0]))
@@ -340,12 +336,12 @@ def start_100b_dashboard():
         for k, v in defaults.items(): st.session_state[k] = v
         if "matched_stocks" in st.session_state: del st.session_state["matched_stocks"]
 
-    st.set_page_config(page_title="나만의 주식 검색기 V7.0", layout="wide")
+    st.set_page_config(page_title="나만의 주식 검색기 V7.1", layout="wide")
     if "selected_ticker" not in st.session_state: st.session_state["selected_ticker"] = "NONE"
     registered_tickers = get_watchlist_df()["Ticker"].tolist()
 
     st.markdown("""<style>[data-testid="stSidebarUserContent"] { padding-top: 0rem !important; margin-top: -40px !important; } [data-testid="stSidebarUserContent"] h3 { font-size: 15px !important; margin-top: -20px !important; margin-bottom: -10px !important; } .inline-label { font-size: 13px !important; font-weight: bold; color: #333333; margin-top: -10px !important; margin-bottom: 2px !important; } div[data-baseweb="select"] { font-size: 12px !important; } div[data-baseweb="select"] > div { min-height: 40px !important; height: 40px !important; } [data-testid="stVerticalBlockBorderWrapper"] { padding: 5px 8px !important; margin-bottom: -20px !important; } .stButton button { min-height: 28px !important; height: 28px !important; font-size: 12px !important; padding: 0px 2px !important; white-space: nowrap !important; } hr { margin-top: 5px !important; margin-bottom: 5px !important; } [data-testid="stMarkdownContainer"] p { margin-bottom: 0px !important; } .stCheckbox { margin-top: 5px !important; } button[data-baseweb="tab"] { font-size: 16px !important; font-weight: bold !important; } div[data-testid="column"] p { font-size: 12px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; margin-bottom: 0px !important; letter-spacing: -0.5px; } div[data-testid="column"] button { font-size: 11px !important; padding: 0px 4px !important; }</style>""", unsafe_allow_html=True)
-    st.title("📈 100억 벌고 싶다 (V7.0 수급추세 완전판)")
+    st.title("📈 100억 벌고 싶다 (V7.1 수급 디테일 완성)")
     st.divider()
 
     tab1, tab2 = st.tabs(["🔍 초고속 검색기", "⭐ 나의 관심종목 (신규 추가 가능)"])
@@ -426,18 +422,6 @@ def start_100b_dashboard():
                 c1, c2 = st.columns(2, gap="small")
                 with c1: ma_n = st.number_input("이평선(N봉)", 1, 200, 20, key="k_ma_n")
                 with c2: ma_cond = st.selectbox("이평선 조건", ["조건없음", "위", "아래", "터치"], key="k_ma_cond")
-            with st.container(border=True):
-                st.markdown('<div class="inline-label" style="margin-bottom: 5px;">이평선 골든크로스</div>', unsafe_allow_html=True)
-                c1, c2, c3 = st.columns([1, 1, 1.5], gap="small")
-                with c1: ma_short = st.number_input("단기", 1, 200, 5, key="k_ma_s")
-                with c2: ma_long = st.number_input("장기", 1, 200, 120, key="k_ma_l")
-                with c3: ma_cross_cond = st.selectbox("크로스조건", ["조건없음", "적용"], label_visibility="hidden", key="k_ma_c")
-            with st.container(border=True):
-                st.markdown('<div class="inline-label" style="margin-bottom: 5px;">이평선 연속 우상향</div>', unsafe_allow_html=True)
-                c1, c2, c3 = st.columns([1, 1, 1.5], gap="small")
-                with c1: ma_up_n = st.number_input("N일선", 1, 200, 20, key="k_maup_n")
-                with c2: ma_up_m = st.number_input("M일 연속", 1, 60, 5, key="k_maup_m")
-                with c3: ma_up_cond = st.selectbox("우상향조건", ["조건없음", "적용"], label_visibility="hidden", key="k_maup_cond")
 
             st.markdown("### ⚡ 모멘텀")
             with st.container(border=True):
@@ -445,12 +429,6 @@ def start_100b_dashboard():
                 with c1: ichi_cond = st.selectbox("일목균형표", ["조건없음", "위", "아래"], key="k_ichi")
                 with c2: bb_cond = st.selectbox("볼린저밴드", ["조건없음", "상단", "중단", "하단"], key="k_bb")
                 with c3: macd_cond = st.selectbox("MACD", ["조건없음", "골든크로스", "0선돌파"], key="k_macd")
-            with st.container(border=True):
-                bb_squeeze_cond = st.checkbox("🎯 볼린저밴드(스퀴즈)", value=st.session_state.get("k_bb_sq", False), key="k_bb_sq")
-                if bb_squeeze_cond:
-                    c1, c2 = st.columns(2, gap="small")
-                    with c1: st.number_input("유지 기간(N봉)", 5, 300, st.session_state.get("k_bb_sq_n", 20), key="k_bb_sq_n")
-                    with c2: st.number_input("수축 폭(%)", 1.0, 30.0, st.session_state.get("k_bb_sq_pct", 5.0), step=1.0, key="k_bb_sq_pct")
             with st.container(border=True):
                 c1, c2 = st.columns(2, gap="small")
                 with c1:
@@ -466,7 +444,6 @@ def start_100b_dashboard():
                 avail_sectors = ["조건없음", "정보기술 (IT)", "금융", "헬스케어", "임의소비재", "커뮤니케이션", "산업재", "필수소비재", "에너지", "소재", "유틸리티", "부동산", "미분류"]
                 st.markdown('<div class="inline-label" style="margin-bottom: 5px;">섹터 선택</div>', unsafe_allow_html=True)
                 sector_cond = st.selectbox("섹터", avail_sectors, label_visibility="collapsed", key="k_sector")
-            with st.container(border=True): vol_rank_1 = st.checkbox("🔥 최근 거래량 상위 20위", value=st.session_state.get("k_vol_rank", False), key="k_vol_rank")
             with st.container(border=True):
                 c1, c2 = st.columns(2, gap="small")
                 with c1: vol_cond = st.selectbox("거래량 폭발", ["조건없음", "150%", "200%", "300%"], key="k_vol")
@@ -479,20 +456,10 @@ def start_100b_dashboard():
                     c1, c2 = st.columns(2, gap="small")
                     with c1: per_cond = st.number_input("PER 이하 (0=미적용)", min_value=0.0, max_value=500.0, value=st.session_state.get("k_per", 0.0), step=1.0, key="k_per")
                     with c2: pbr_cond = st.number_input("PBR 이하 (0=미적용)", min_value=0.0, max_value=50.0, value=st.session_state.get("k_pbr", 0.0), step=0.1, key="k_pbr")
-                    fr_label = "외인 지분율(%)" if market == "한국" else "기관 지분율(%)"
+                    fr_label = "외인지분(%)" if market == "한국" else "기관지분(%)"
                     k_foreigner_rate = st.number_input(f"{fr_label} 이상 (0=미적용)", min_value=0.0, max_value=100.0, value=st.session_state.get("k_foreigner_rate", 0.0), step=1.0, key="k_foreigner_rate")
-                if market == "한국":
-                    st.markdown("#### 🕵️‍♂️ 수급 분석 (네이버)")
-                    with st.container(border=True):
-                        st.markdown('<div class="inline-label" style="margin-bottom: 5px;">외인/기관 (M일 중 N일 매수)</div>', unsafe_allow_html=True)
-                        c1, c2, c3, c4 = st.columns([1.3, 0.9, 0.9, 1.2], gap="small")
-                        with c1: investor_type = st.selectbox("주체", ["조건없음", "외인", "기관", "양매수"], label_visibility="collapsed", key="k_inv_type")
-                        with c2: investor_total_days = st.number_input("총(M)", 1, 100, 5, label_visibility="collapsed", key="k_inv_m")
-                        with c3: investor_buy_days = st.number_input("매수(N)", 1, 100, 3, label_visibility="collapsed", key="k_inv_n")
-                        with c4: investor_min_pct = st.number_input("비중(%)", 0.0, 100.0, 5.0, step=1.0, label_visibility="collapsed", key="k_inv_pct")
-                else: investor_type, investor_total_days, investor_buy_days, investor_min_pct = "조건없음", 5, 3, 5.0
             else:
-                per_cond, pbr_cond, k_foreigner_rate, investor_type = 0.0, 0.0, 0.0, "조건없음"
+                per_cond, pbr_cond, k_foreigner_rate = 0.0, 0.0, 0.0
                 st.info("💡 ETF 모드에서는 재무 가치 지표 및 메인 수급 필터가 자동으로 제외됩니다.")
 
             btn_label = "📊 우량 ETF 초고속 스캔 (실행)" if asset_type == "ETF 전용" else "🚀 글로벌 데이터 초고속 스캔 (실행)"
@@ -506,20 +473,10 @@ def start_100b_dashboard():
                 with st.spinner(f"가치 및 수급 지표 동기화 중..."):
                     sector_map = sync_market_sectors_v8(market) if asset_type == "일반 주식" else {}
                     sheet_data = fetch_sheet_data("KRX_DATA" if market == "한국" else "US_DATA") if asset_type == "일반 주식" else {}
-                    supply_trend_map = fetch_supply_trend_data() # 🌟 수급 추세 (60일) 맵 로딩!
+                    supply_trend_map = fetch_supply_trend_data() 
 
                 matched_stocks, debug_list = {}, []
                 name_map = get_market_database(market, asset_type)
-                valid_investor_tickers = set(db.keys())
-
-                if market == "한국" and asset_type == "일반 주식" and investor_type != "조건없음":
-                    with st.spinner(f"네이버 실시간 수급 분석 중..."):
-                        passed_tickers = set()
-                        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as exc:
-                            futures = {exc.submit(check_investor_streak_naver, t, investor_type, investor_total_days, investor_buy_days, investor_min_pct): t for t in valid_investor_tickers}
-                            for f in as_completed(futures):
-                                if f.result(): passed_tickers.add(futures[f])
-                        valid_investor_tickers = passed_tickers
 
                 for ticker, df in db.items():
                     if asset_type == "일반 주식" and sector_cond != "조건없음" and sector_map.get(ticker, "미분류") != sector_cond: continue
@@ -532,7 +489,6 @@ def start_100b_dashboard():
                         if pbr_cond > 0 and (t_pbr <= 0 or t_pbr > pbr_cond): continue
                         if k_foreigner_rate > 0 and t_foreign_rate < k_foreigner_rate: continue
 
-                    if market == "한국" and asset_type == "일반 주식" and investor_type != "조건없음" and ticker not in valid_investor_tickers: continue
                     if df["Volume_line"].iloc[-1] == 0 or df["Volume_line"].iloc[-2] == 0: continue
 
                     year_high, year_low, band_position = 0, 0, 0
@@ -561,54 +517,21 @@ def start_100b_dashboard():
                         if ma_cond == "아래" and cp >= l_ma: continue
                         if ma_cond == "터치" and abs(cp - l_ma) / l_ma > 0.005: continue
 
-                    if ichi_cond != "조건없음":
-                        s_max, s_min = max(latest["Ichimoku_SpanA"], latest["Ichimoku_SpanB"]), min(latest["Ichimoku_SpanA"], latest["Ichimoku_SpanB"])
-                        if "위" in ichi_cond and cp <= s_max: continue
-                        if "아래" in ichi_cond and cp >= s_min: continue
-
-                    if bb_cond != "조건없음":
-                        if bb_cond == "상단" and cp < latest["BB_High"] * 0.98: continue
-                        if bb_cond == "하단" and cp > latest["BB_Low"] * 1.02: continue
-                        if bb_cond == "중단" and abs(cp - (latest["BB_High"] + latest["BB_Low"]) / 2) / ((latest["BB_High"] + latest["BB_Low"]) / 2) > 0.02: continue
-
-                    if st.session_state.get("k_bb_sq"):
-                        if ((df["BB_High"] - df["BB_Low"]) / df["Close_line"].rolling(20).mean() * 100).tail(st.session_state.get("k_bb_sq_n", 20)).max() > st.session_state.get("k_bb_sq_pct", 5.0): continue
-
-                    if stoch_cond != "조건없음" and "20이하 골든크로스" in stoch_cond:
-                        if not ((prev["Stoch_K"] <= prev["Stoch_D"] and latest["Stoch_K"] > latest["Stoch_D"]) and prev["Stoch_K"] <= 20): continue
-
-                    if ma_cross_cond == "적용":
-                        if not (df["Close_line"].rolling(ma_short).mean().iloc[-2] <= df["Close_line"].rolling(ma_long).mean().iloc[-2] and df["Close_line"].rolling(ma_short).mean().iloc[-1] > df["Close_line"].rolling(ma_long).mean().iloc[-1]): continue
-
-                    if macd_cond == "0선돌파" and not (prev["MACD"] <= 0 and latest["MACD"] > 0): continue
-                    if macd_cond == "골든크로스" and not (prev["MACD"] <= prev["MACD_Signal"] and latest["MACD"] > latest["MACD_Signal"]): continue
-
-                    if vol_cond != "조건없음":
-                        recent_max_vol = max(latest["Volume_line"], prev["Volume_line"])
-                        recent_df = df.tail(vol_n)
-                        bg_df = recent_df.iloc[:-2]
-                        if bg_df.empty or bg_df["Volume_line"].mean() == 0: continue
-                        if (recent_max_vol / bg_df["Volume_line"].mean() * 100) < float(vol_cond.replace("%", "")): continue
-                        if recent_max_vol < (bg_df["Volume_line"].max() * 1.5): continue
-
-                    # 🌟 표 데이터 구성 (11개 항목 리스트 압축 적용)
                     matched_stocks[ticker] = df
                     t_trend = supply_trend_map.get(ticker, "데이터 없음")
+                    
+                    # 🌟 명확한 키값 할당 (결측치는 "-" 대신 "N/A" 사용)
                     debug_list.append({
                         "티커": ticker, "종목명": name_map.get(ticker, ticker), 
                         "현재가": f"{cp:,.0f}" if market == "한국" else f"{cp:,.2f}", 
                         "1년고": f"{year_high:,.0f}" if pd.notna(year_high) and year_high > 0 else "0", 
                         "1년저": f"{year_low:,.0f}" if pd.notna(year_low) and year_low > 0 else "0", 
                         "고저밴드": f"{band_position:.1f}%", 
-                        "외인/기관%": f"{t_foreign_rate:.2f}%" if t_foreign_rate > 0 else "-",
+                        "외인기관율": f"{t_foreign_rate:.2f}%" if t_foreign_rate > 0 else "N/A",
                         "수급추세": t_trend
                     })
 
-                if vol_rank_1 and len(debug_list) > 0:
-                    # 거래량 랭킹 필터
-                    pass # 로직 간소화
-
-                st.session_state.update({"matched_stocks": matched_stocks if matched_stocks else "NONE", "debug_list": debug_list, "current_market": market, "filtered_list": debug_list, "current_asset_type": asset_type})
+                st.session_state.update({"matched_stocks": matched_stocks if matched_stocks else "NONE", "debug_list": debug_list, "current_market": market, "current_asset_type": asset_type})
 
         if st.session_state.get("matched_stocks") == "NONE": st.error("조건에 맞는 종목이 없습니다.")
         elif isinstance(st.session_state.get("matched_stocks"), dict) and st.session_state.get("matched_stocks"):
@@ -617,19 +540,20 @@ def start_100b_dashboard():
             sector_map = sync_market_sectors_v8(c_m) if c_a == "일반 주식" else {}
 
             now_kst = datetime.datetime.now(pytz.timezone("Asia/Seoul"))
-            st.info(f"🕒 실시간 주가 동기화 시점: {now_kst.strftime('%Y-%m-%d %H:%M:%S')}")
+            st.info(f"🕒 데이터 동기화 완료")
 
             kw = st.text_input("결과 내 검색", placeholder="종목명 또는 티커 입력").lower()
             filtered_list = [d for d in dl if kw in d["종목명"].lower() or kw in d["티커"].lower()]
 
             if not filtered_list: st.warning("매칭되는 종목이 없습니다.")
             else:
-                st.success(f"총 {len(filtered_list)}개 자산 매칭 성공!")
+                st.success(f"총 {len(filtered_list)}개 자산 매칭 성공! (스캔 버튼을 꼭 눌러주세요)")
                 
-                # 🌟 [표 11개 항목으로 압축]
+                # 🌟 [헤더 텍스트 변경: 한국=외인%, 미국=기관%]
+                fr_header_text = "외인지분(%)" if c_m == "한국" else "기관지분(%)"
                 col_ratio_tab1 = [0.6, 1.4, 1.1, 1.8, 1.4, 1.2, 1.0, 1.0, 1.0, 1.0, 1.5]
                 h_cols = st.columns(col_ratio_tab1)
-                for i, h in enumerate(["순번", "선택", "티커", "종목명", "섹터", "현재가", "1년고", "1년저", "고저밴드", "외인/기관%", "수급추세"]): 
+                for i, h in enumerate(["순번", "선택", "티커", "종목명", "섹터", "현재가", "1년고", "1년저", "고저밴드", fr_header_text, "수급추세"]): 
                     h_cols[i].write(f"**{h}**")
                 st.divider()
 
@@ -639,7 +563,7 @@ def start_100b_dashboard():
                         cols[0].write(i + 1)
                         b_cols = cols[1].columns([1, 1])
                         if b_cols[0].button("🔍분석", key=f"btn_anal_{i}_{item['티커']}"): st.session_state["selected_ticker"] = item["티커"]
-                        if item["티커"] in registered_tickers: b_cols[1].button("🔴등록됨", key=f"btn_reg_done_{i}_{item['티커']}", disabled=True, type="primary")
+                        if item["티커"] in registered_tickers: b_cols[1].button("🔴등록", key=f"btn_reg_done_{i}_{item['티커']}", disabled=True, type="primary")
                         else:
                             if b_cols[1].button("💾등록", key=f"btn_reg_{i}_{item['티커']}"): st.session_state[f"show_input_{item['티커']}"] = True
 
@@ -655,111 +579,47 @@ def start_100b_dashboard():
                         cols[3].write(item["종목명"])
                         cols[4].write("ETF 상품" if c_a == "ETF 전용" else str(sector_map.get(item["티커"], "미분류"))[:8])
                         cols[5].write(item["현재가"])
-                        cols[6].write(item.get("1년고", "-"))
-                        cols[7].write(item.get("1년저", "-"))
+                        cols[6].write(item.get("1년고", "N/A"))
+                        cols[7].write(item.get("1년저", "N/A"))
                         cols[8].write(item.get("고저밴드", "0%"))
-                        cols[9].write(item.get("외인/기관%", "-"))
-                        # 🌟 수급 추세를 예쁜 색깔로 HTML 포맷팅하여 출력
-                        cols[10].markdown(format_trend_html(item.get("수급추세", "")), unsafe_allow_html=True)
+                        # 🌟 N/A 텍스트가 점으로 변하지 않도록 강제 문자열 출력
+                        cols[9].text(item.get("외인기관율", "N/A"))
+                        cols[10].markdown(format_trend_html(item.get("수급추세", "N/A")), unsafe_allow_html=True)
                         st.divider()
 
                 # =========================================================
-                # 🚀 가이드 생성 및 '2줄 정렬' 차트 분석 출력
+                # 🚀 종합분석 (2줄 카드뷰 + 차트)
                 # =========================================================
-                def clean_brand_name(name):
-                    brands = ['KODEX', 'TIGER', 'RISE', 'ACE', 'KBSTAR', 'HANARO', 'KOSEF', 'ARIRANG', 'SOL', 'PLUS', '히어로즈', 'TIMEFOLIO', '마이티', 'TREX', 'KoAct', 'TIME', 'WOORI', 'KIWOOM']
-                    res = name
-                    for b in brands: res = res.replace(b, "").strip()
-                    return res
-
-                @st.cache_data(ttl=86400, show_spinner=False)
-                def fetch_etf_beginner_guide(ticker, market, etf_name):
-                    theme = clean_brand_name(etf_name)
-                    desc, tip = "", ""
-                    if market == "한국":
-                        if "머니마켓" in theme or "CD금리" in theme or "KOFR" in theme or "단기채" in theme:
-                            desc = "은행의 '파킹통장'처럼, 하루만 넣어둬도 매일매일 이자가 붙는 현금 보관용 최고 안전 피난처입니다."
-                            tip = "✅ **신박한 활용법:** 당장 살 주식이 없거나 폭락장이 예상될 때, 예수금을 그냥 놀리지 말고 여기에 넣어두면 쏠쏠한 꽁돈(이자)이 생깁니다!"
-                        elif "200" in theme:
-                            desc = "삼성전자, 현대차 등 대한민국 주식시장을 이끄는 '국가대표 대형주 200개'를 하나로 묶어서 통째로 사는 상품입니다."
-                            tip = "✅ **신박한 활용법:** 한국 증시가 바닥을 치고 다시 살아날 것 같을 때, 개별 주식 고를 필요 없이 이거 하나면 시장 전체의 반등을 다 먹을 수 있습니다."
-                        elif "S&P" in theme or "S&P500" in theme:
-                            desc = "환전할 필요 없이, 한국 돈(원화)으로 미국 상위 500개 우량 기업의 성장을 그대로 누릴 수 있는 상품입니다."
-                            tip = "✅ **신박한 활용법:** ISA 계좌나 연금저축펀드 계좌에서 이 종목을 모아가면 세금 혜택까지 받으면서 워렌 버핏처럼 투자할 수 있습니다."
-                        elif "나스닥" in theme:
-                            desc = "애플, 엔비디아 등 미국의 혁신 기술주들에 원화로 편하게 투자하는 상품입니다."
-                            tip = "✅ **신박한 활용법:** 기술주는 변동성이 크기 때문에, 하락장일 때 줍줍(분할 매수)해두면 다음 상승장에서 가장 가파르게 오르는 효자 종목입니다."
-                        elif "배당" in theme or "커버드콜" in theme or "인컴" in theme:
-                            desc = "주가 상승보다는 '따박따박 들어오는 높은 배당금(월급)'을 목표로 하는 현금 창출용 거위입니다."
-                            tip = "✅ **신박한 활용법:** 은퇴를 앞두셨거나 매월 고정적인 현금흐름이 필요할 때 1순위로 고려해야 할 '제2의 월급통장'입니다."
-                        elif "2차전지" in theme:
-                            desc = "전기차 배터리 생태계 전체를 장바구니에 싹 쓸어 담은 테마입니다."
-                            tip = "✅ **신박한 활용법:** 2차전지는 산업 사이클을 크게 탑니다. 전기차 수요 둔화로 남들이 공포에 질려 던질 때가 역발상 매수 타이밍입니다."
-                        elif "반도체" in theme:
-                            desc = "AI 시대를 이끌어가는 핵심 부품인 반도체 관련 국내/해외 최고 기업들을 모아둔 상품입니다."
-                            tip = "✅ **신박한 활용법:** 특정 기업(삼성 vs SK 등) 중 누가 이길지 베팅하기 어려울 때, 이 테마를 사면 산업 전체의 성장을 챙길 수 있습니다."
-                        elif "AI" in theme or "인공지능" in theme:
-                            desc = "미래 산업의 판도를 완전히 뒤바꿀 핵심 기술인 '인공지능(AI)' 관련 혁신 기업들에 집중 투자하는 테마입니다."
-                            tip = "✅ **신박한 활용법:** AI는 이제 막 개화하는 메가 트렌드입니다. 단기 주가 변동에 흔들리지 말고, 미래 시대의 '석유'를 선점한다는 마인드로 모아가세요."
-                        elif "방산" in theme:
-                            desc = "전 세계로 수출되며 위상을 높이고 있는 국내 방위산업 기업들에 집중 투자합니다."
-                            tip = "✅ **신박한 활용법:** 지정학적 갈등 뉴스가 터질 때마다 시장 지수와 반대로 주가가 급등하는 훌륭한 테마 방패입니다."
-                        elif any(x in theme for x in ["레버리지", "2X"]):
-                            desc = "지수가 1% 오를 때 내 수익은 2배로 폭발하는 야수의 무기입니다."
-                            tip = "⚠️ **야수의 팁:** 절대 장투 금지! 확실한 촉이 왔을 때만 짧게 치고 빠지는 용도입니다."
-                        elif "인버스" in theme:
-                            desc = "주식 시장이 '하락'해야만 내 계좌에 수익이 찍히는 공매도 성격의 상품입니다."
-                            tip = "⚠️ **야수의 팁:** 글로벌 악재가 터져서 시장이 당분간 계속 빠질 것 같을 때, 내 주식들의 손실을 퉁쳐주는 방어막입니다."
-                        else:
-                            desc = f"글로벌 자본이 집중되는 **[{theme}]** 산업 트렌드와 성장에 베팅하는 상품입니다."
-                            tip = "✅ **신박한 활용법:** 개별 기업 1~2개가 망하더라도, 산업 전체가 크면 펀드 가격은 오르기 때문에 스트레스 없는 투자법입니다."
-                        return f"**💡 이건 어떤 종목인가요? (핵심 요약)**\n- {desc}\n\n{tip}"
-                    else:
-                        if "S&P 500" in theme: desc = "미국 우량 대형주 500개에 투자하는 세계 1위 펀드입니다. 워렌 버핏이 가장 강력하게 추천하는 '근본' 상품입니다."
-                        elif "NASDAQ 100" in theme or "나스닥" in theme: desc = "애플, 엔비디아 등 미국을 이끄는 100개 혁신 기술주에 집중합니다. 시대의 흐름을 타는 가장 빠른 방법입니다."
-                        elif "배당" in theme or "인컴" in theme: desc = "따박따박 들어오는 배당금까지 챙기는 상품입니다. 마르지 않는 현금 파이프라인을 만들 때 필수입니다."
-                        elif "반도체" in theme: desc = "AI 시대의 필수 부품인 반도체 글로벌 리더(엔비디아, TSMC 등)들을 싹 쓸어 담은 핵심 테마입니다."
-                        elif "AI" in theme or "인공지능" in theme: desc = "세상의 패러다임을 바꿀 글로벌 인공지능(AI) 선도 기업들의 성장을 내 계좌로 그대로 가져오는 테마입니다."
-                        elif any(x in theme for x in ["2배", "3배", "레버리지"]): desc = "수익이 2~3배로 폭발하지만 손실도 그만큼 빠릅니다. 야수의 심장을 가진 투자자를 위한 단기전 상품입니다."
-                        elif "인버스" in theme: desc = "주가가 떨어질 때 오히려 돈을 버는 하락장 전용 상품입니다. 폭락장에서 내 계좌를 지키는 보험과 같습니다."
-                        else: desc = f"글로벌 자본이 몰리는 **[{theme}]** 산업 전체에 분산 투자하여 리스크를 낮추고 성장을 누리는 상품입니다."
-                        tip = "✅ **신박한 활용법:** 개별 기업의 리스크는 완벽하게 피하면서, 해당 산업의 '성장 과실'만 쏙쏙 빼먹을 수 있는 가장 영악한 투자법입니다."
-                        return f"**💡 이건 어떤 종목인가요? (핵심 요약)**\n- {desc}\n\n{tip}"
-
                 sel_tk = st.session_state["selected_ticker"]
                 if sel_tk != "NONE":
                     st.divider()
                     st.subheader(f"📊 {sel_tk} ({n_map.get(sel_tk, '')}) 종합 분석")
 
-                    # 🌟 [분석창 하단 2줄 지표 카드 배치]
                     df_anal = ms.get(sel_tk, pd.DataFrame()) if isinstance(ms, dict) else fetch_specific_timeframe_data(sel_tk, "일봉")
                     if not df_anal.empty:
                         sheet_anal = fetch_sheet_data("KRX_DATA" if c_m == "한국" else "US_DATA")
-                        f_per, f_pbr, f_fr = sheet_anal.get(sel_tk, {}).get("PER", 0.0), sheet_anal.get(sel_tk, {}).get("PBR", 0.0), sheet_anal.get(sel_tk, {}).get("Foreigner", 0.0)
+                        f_per = sheet_anal.get(sel_tk, {}).get("PER", 0.0)
+                        f_pbr = sheet_anal.get(sel_tk, {}).get("PBR", 0.0)
+                        f_fr = sheet_anal.get(sel_tk, {}).get("Foreigner", 0.0)
                         
                         latest_rsi = round(df_anal["RSI"].iloc[-1], 1)
                         latest_stoch = round(df_anal["Stoch_K"].iloc[-1], 1)
                         bg_mean = df_anal["Volume_line"].iloc[:-2].mean() if len(df_anal) > 2 else 0
                         vol_ratio = (df_anal["Volume_line"].iloc[-1] / bg_mean * 100) if bg_mean > 0 else 0
 
-                        # 첫 번째 줄
                         mc1, mc2, mc3 = st.columns(3)
                         mc1.metric("PER (가치 지표)", f"{f_per:.2f}" if c_a == "일반 주식" and f_per > 0 else "N/A")
                         mc2.metric("PBR (가치 지표)", f"{f_pbr:.2f}" if c_a == "일반 주식" and f_pbr > 0 else "N/A")
-                        mc3.metric("외인/기관 보유율", f"{f_fr:.2f}%" if c_a == "일반 주식" and f_fr > 0 else "N/A")
+                        
+                        # 🌟 동적 기관명 적용
+                        fr_label_anal = "외인 보유율(%)" if c_m == "한국" else "기관 보유율(%)"
+                        mc3.metric(fr_label_anal, f"{f_fr:.2f}%" if c_a == "일반 주식" and f_fr > 0 else "N/A")
+                        
                         st.markdown("<br>", unsafe_allow_html=True)
-                        # 두 번째 줄
                         mc4, mc5, mc6 = st.columns(3)
                         mc4.metric("RSI (과매수/과매도)", f"{latest_rsi}")
                         mc5.metric("Stochastic %K (단기 탄력)", f"{latest_stoch}")
                         mc6.metric("당일 거래량 폭발(%)", f"{vol_ratio:.1f}%")
-                        st.divider()
-
-                    if c_a == "ETF 전용":
-                        with st.spinner("전문가용 ETF 브리핑 불러오는 중..."):
-                            etf_name_kr = n_map.get(sel_tk, sel_tk)
-                            etf_desc = fetch_etf_beginner_guide(sel_tk, c_m, etf_name_kr)
-                        st.info(f"**📖 ETF 1분 족집게 레포트**\n\n{etf_desc}")
                         st.divider()
 
                     tf = st.radio("시간 축", ["일봉", "주봉", "60분봉"], horizontal=True, key="time_frame_radio")
@@ -782,39 +642,9 @@ def start_100b_dashboard():
                         vc = ["rgba(255,50,50,0.8)" if c >= o else "rgba(50,50,255,0.8)" for o, c in zip(df["Open_line"], df["Close_line"])]
                         fig.add_trace(go.Bar(x=idx, y=df["Volume_line"], marker_color=vc, name="거래량"), row=1, col=1, secondary_y=True)
 
-                        if bb_cond != "조건없음" or st.session_state.get("k_bb_sq"):
-                            fig.add_trace(go.Scatter(x=idx, y=df["BB_High"], line=dict(color="#8A2BE2", dash="dot"), name="BB상단"), row=1, col=1)
-                            fig.add_trace(go.Scatter(x=idx, y=df["BB_Low"], line=dict(color="#8A2BE2", dash="dot"), fill="tonexty", fillcolor="rgba(138,43,226,0.05)", name="BB하단"), row=1, col=1)
-
-                        if ichi_cond != "조건없음":
-                            fig.add_trace(go.Scatter(x=idx, y=df["Ichimoku_SpanA"], line=dict(color="#00FA9A", width=1), name="일목A"), row=1, col=1)
-                            fig.add_trace(go.Scatter(x=idx, y=df["Ichimoku_SpanB"], line=dict(color="#FA8072", width=1), fill="tonexty", fillcolor="rgba(250,128,114,0.1)", name="일목B"), row=1, col=1)
-                        if array_cond != "조건없음":
-                            fig.add_trace(go.Scatter(x=idx, y=df["Close_line"].rolling(5).mean(), line=dict(color="#FF1493", width=1.5), name="5이평"), row=1, col=1)
-                            fig.add_trace(go.Scatter(x=idx, y=df["Close_line"].rolling(20).mean(), line=dict(color="#FFD700", width=1.5), name="20이평"), row=1, col=1)
-                            fig.add_trace(go.Scatter(x=idx, y=df["Close_line"].rolling(60).mean(), line=dict(color="#00BFFF", width=1.5), name="60이평"), row=1, col=1)
-
-                        current_row = 2
-                        for subplot in active_subplots:
-                            if subplot == "RSI":
-                                fig.add_trace(go.Scatter(x=idx, y=df["RSI"], line=dict(color="purple"), name="RSI"), row=current_row, col=1)
-                                fig.add_hline(y=70, line_dash="dot", line_color="orange", row=current_row, col=1); fig.add_hline(y=30, line_dash="dot", line_color="dodgerblue", row=current_row, col=1)
-                                fig.update_yaxes(title_text="<b>RSI</b>", range=[0, 100], row=current_row, col=1)
-                            elif subplot == "STOCH":
-                                fig.add_trace(go.Scatter(x=idx, y=df["Stoch_K"], line=dict(color="darkcyan"), name="%K"), row=current_row, col=1)
-                                fig.add_trace(go.Scatter(x=idx, y=df["Stoch_D"], line=dict(color="chocolate", dash="dot"), name="%D"), row=current_row, col=1)
-                                fig.add_hline(y=80, line_dash="dot", line_color="red", row=current_row, col=1); fig.add_hline(y=20, line_dash="dot", line_color="green", row=current_row, col=1)
-                                fig.update_yaxes(title_text="<b>STOCH</b>", range=[0, 100], row=current_row, col=1)
-                            elif subplot == "MACD":
-                                fig.add_trace(go.Bar(x=idx, y=df["MACD_Hist"], marker_color="gray", name="MACD Hist"), row=current_row, col=1)
-                                fig.add_trace(go.Scatter(x=idx, y=df["MACD"], line=dict(color="blue"), name="MACD"), row=current_row, col=1)
-                                fig.add_trace(go.Scatter(x=idx, y=df["MACD_Signal"], line=dict(color="orange", dash="dot"), name="Signal"), row=current_row, col=1)
-                                fig.update_yaxes(title_text="<b>MACD</b>", row=current_row, col=1)
-                            current_row += 1
-
                         fig.update_yaxes(title_text="<b>주가</b>", row=1, col=1, secondary_y=False)
                         fig.update_yaxes(title_text="<b>거래량</b>", showgrid=False, range=[0, df["Volume_line"].max() * 5], row=1, col=1, secondary_y=True)
-                        fig.update_layout(height=max(600, 400 + (len(active_subplots) * 200)), hovermode="x unified", dragmode="pan", margin=dict(l=80, r=40, t=40, b=40), xaxis_rangeslider_visible=False)
+                        fig.update_layout(height=max(500, 300 + (len(active_subplots) * 200)), hovermode="x unified", dragmode="pan", margin=dict(l=80, r=40, t=40, b=40), xaxis_rangeslider_visible=False)
                         st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True})
                         st.divider()
 
@@ -840,121 +670,83 @@ def start_100b_dashboard():
                     with st.spinner(f"'{final_ticker}' 검색 중..."):
                         try:
                             if not yf.download(final_ticker, period="1d", progress=False).empty:
-                                fetched_name = final_name
-                                if final_name == final_ticker:
-                                    try: fetched_name = yf.Ticker(final_ticker).info.get('shortName', final_name)
-                                    except: pass
-                                save_to_watchlist_local(final_ticker, fetched_name, 0.0, 0.0); st.rerun()
+                                save_to_watchlist_local(final_ticker, final_name, 0.0, 0.0); st.rerun()
                             else: st.error("❌ 찾을 수 없습니다.")
                         except: st.error("🚨 오류 발생.")
 
-        if "show_news" not in st.session_state: st.session_state["show_news"] = False
-        c_news1, c_news2 = st.columns([8, 2])
-        with c_news1: st.button("⬇️ 뉴스 닫기" if st.session_state.get("show_news") else "📰 관심종목 뉴스 스크랩", use_container_width=True, type="primary", on_click=toggle_news_state)
-        refresh_news = False
-        with c_news2:
-            if st.session_state.get("show_news"): refresh_news = st.button("🔄 새로고침", use_container_width=True)
-
-        if st.session_state.get("show_news") and (refresh_news or st.session_state.pop("auto_fetch_news", False)):
-            if "scraped_news" in st.session_state: del st.session_state["scraped_news"]
-            with st.spinner("최신 뉴스 수집 중..."):
-                df_watch = get_watchlist_df()
-                queries = [("거시경제 OR 금리", "🌐 정책"), ("달러 환율", "💵 환율"), ("WTI 유가", "🛢️ 유가"), ("비트코인", "🪙 코인")]
-                for nm in df_watch["Name"]: queries.append((f"{nm} (특징주 OR 실적)", f"🏢 {nm}"))
-                all_news = []
-                with ThreadPoolExecutor(max_workers=MAX_WORKERS) as exc:
-                    for f in as_completed([exc.submit(fetch_news_rss, q[0], q[1]) for q in queries]): all_news.extend(f.result())
-                unique_news = []
-                for news in all_news:
-                    if not any(difflib.SequenceMatcher(None, news["title"].replace(" ", ""), un["title"].replace(" ", "")).ratio() > 0.6 for un in unique_news): unique_news.append(news)
-                st.session_state["scraped_news"] = sorted(unique_news, key=lambda x: x["date"], reverse=True)
-
-        if st.session_state.get("show_news") and st.session_state.get("scraped_news"):
-            st.markdown("#### 📬 최신 뉴스 브리핑")
-            with st.container(height=700, border=True):
-                for news in st.session_state["scraped_news"]:
-                    st.markdown(f"**[{news['category']}] [{news['title']}]({news['link']})**")
-                    st.caption(f"🗓️ {news['date']} | 🗞️ {news['source']}")
-                    st.write(f"> {news['desc']}"); st.divider()
-        else:
-            now_kst = datetime.datetime.now(pytz.timezone("Asia/Seoul"))
-            st.info(f"🕒 데이터 시점: {now_kst.strftime('%Y-%m-%d %H:%M:%S')}")
-            df_watch = get_watchlist_df()
-            if df_watch.empty: st.info("등록된 관심종목이 없습니다.")
-            else:
-                tickers = df_watch["Ticker"].tolist()
-                with st.spinner("실시간 데이터 불러오는 중..."):
-                    tech_map = fetch_watchlist_data(tickers)
-                    sector_map_watch = fetch_sectors_for_watchlist_v8(tickers)
-                    sheet_data_kr = fetch_sheet_data("KRX_DATA")
-                    sheet_data_us = fetch_sheet_data("US_DATA")
-                    supply_trend_map = fetch_supply_trend_data() # 🌟 관심종목 수급 추세
+        df_watch = get_watchlist_df()
+        if not df_watch.empty:
+            tickers = df_watch["Ticker"].tolist()
+            with st.spinner("실시간 데이터 불러오는 중..."):
+                tech_map = fetch_watchlist_data(tickers)
+                sector_map_watch = fetch_sectors_for_watchlist_v8(tickers)
+                sheet_data_kr = fetch_sheet_data("KRX_DATA")
+                sheet_data_us = fetch_sheet_data("US_DATA")
+                supply_trend_map = fetch_supply_trend_data() 
+            
+            sc1, sc2 = st.columns([2, 8])
+            with sc1: sort_by = st.selectbox("정렬 기준", ["1차매수 근접도(%)", "종목명", "현재가", "등록일 (최신순)", "고저밴드(%)"], label_visibility="collapsed")
+            with sc2: sort_order = st.radio("정렬 방식", ["내림차순", "오름차순"], horizontal=True, label_visibility="collapsed")
+            
+            display_rows = []
+            for _, row in df_watch.iterrows():
+                tk, nm, dt = row["Ticker"], row["Name"], row.get("Date", "N/A")
+                tg1, tg2 = float(row.get("Target1", 0)), float(row.get("Target2", 0))
+                price = tech_map.get(tk, {}).get("Price", 0)
+                y_high, y_low = tech_map.get(tk, {}).get("1YearHigh", 0), tech_map.get(tk, {}).get("1YearLow", 0)
+                band_pos = ((price - y_low) / (y_high - y_low)) * 100 if y_high > 0 and (y_high - y_low) > 0 else 0
+                diff1_pct = ((tg1 - price) / price) * 100 if price > 0 and tg1 > 0 else -9999
                 
-                sc1, sc2 = st.columns([2, 8])
-                with sc1: sort_by = st.selectbox("정렬 기준", ["1차매수 근접도(%)", "종목명", "현재가", "등록일 (최신순)", "고저밴드(%)"], label_visibility="collapsed")
-                with sc2: sort_order = st.radio("정렬 방식", ["내림차순", "오름차순"], horizontal=True, label_visibility="collapsed")
-                st.write("")
-                display_rows = []
-                for _, row in df_watch.iterrows():
-                    tk, nm, dt = row["Ticker"], row["Name"], row.get("Date", "N/A")
-                    tg1, tg2 = float(row.get("Target1", 0)), float(row.get("Target2", 0))
-                    price = tech_map.get(tk, {}).get("Price", 0)
-                    y_high, y_low = tech_map.get(tk, {}).get("1YearHigh", 0), tech_map.get(tk, {}).get("1YearLow", 0)
-                    band_pos = ((price - y_low) / (y_high - y_low)) * 100 if y_high > 0 and (y_high - y_low) > 0 else 0
-                    diff1_pct = ((tg1 - price) / price) * 100 if price > 0 and tg1 > 0 else -9999
+                fr_rate = sheet_data_kr.get(tk, {}).get("Foreigner", 0.0) if ".KS" in tk or ".KQ" in tk else sheet_data_us.get(tk, {}).get("Foreigner", 0.0)
+
+                display_rows.append({
+                    "tk": tk, "nm": nm, "dt": dt, "tg1": tg1, "tg2": tg2, 
+                    "price": price, "band_pos": band_pos, "diff1_pct": diff1_pct, 
+                    "sector": sector_map_watch.get(tk, "미분류"), 
+                    "fr_rate": fr_rate, "trend": supply_trend_map.get(tk, "데이터 없음")
+                })
+
+            display_rows.sort(key=lambda x: {"종목명": x["nm"], "등록일 (최신순)": x["dt"], "현재가": x["price"], "1차매수 근접도(%)": x["diff1_pct"], "고저밴드(%)": x["band_pos"]}[sort_by], reverse=(sort_order == "내림차순"))
+            
+            # 🌟 헤더 통일: 한국-외인/미국-기관 이 모두 섞여 있으므로 포괄적인 제목 사용
+            col_ratio_tab2 = [1.3, 0.8, 1, 1.0, 0.8, 0.8, 0.6, 0.8, 1.4, 1.5]
+            hc = st.columns(col_ratio_tab2)
+            for i, h in enumerate(["종목명", "등록일", "섹터", "현재가", "1차매수", "2차매수", "고저", "외인(韓)/기관(美)%", "수급추세", "관리(수정/삭제)"]): 
+                hc[i].write(f"**{h}**")
+            st.divider()
+
+            with st.container(height=600):
+                for item in display_rows:
+                    tk, nm, dt, tg1, tg2, price, diff1_pct = item["tk"], item["nm"], item["dt"], item["tg1"], item["tg2"], item["price"], item["diff1_pct"]
+                    cc = st.columns(col_ratio_tab2)
+                    cc[0].write(f"**{nm}**\n({tk})")
+                    cc[1].write(dt)
+                    cc[2].write(str(item.get("sector", "미분류"))[:12])
+                    price_str = f"{price:,.0f}" if "KS" in tk or "KQ" in tk else f"{price:,.2f}"
+                    if price > 0:
+                        if tg1 > 0 and (price <= tg1 or diff1_pct >= -0.5): cc[3].markdown(f"<span style='background-color:#ff4b4b;color:white;font-weight:bold;padding:3px 6px;border-radius:4px;'>🚨 {price_str}</span>", unsafe_allow_html=True)
+                        elif tg1 > 0 and diff1_pct >= -3.0: cc[3].markdown(f"<span style='background-color:#ffd700;color:black;font-weight:bold;padding:3px 6px;border-radius:4px;'>🎯 {price_str}</span>", unsafe_allow_html=True)
+                        else: cc[3].write(price_str)
+                    else: cc[3].write("데이터 없음")
                     
-                    # 🌟 지분율 맵핑
-                    fr_rate = 0.0
-                    if ".KS" in tk or ".KQ" in tk: fr_rate = sheet_data_kr.get(tk, {}).get("Foreigner", 0.0)
-                    else: fr_rate = sheet_data_us.get(tk, {}).get("Foreigner", 0.0)
+                    if tg1 > 0: cc[4].markdown(f"<span>{f'{tg1:,.0f}' if tg1>1000 else f'{tg1:,.2f}'}</span> <span style='color:{'#ff4b4b' if diff1_pct>0 else '#00bfff'};font-size:12px;font-weight:bold;'>({'+' if diff1_pct>0 else ''}{diff1_pct:.2f}%)</span>", unsafe_allow_html=True)
+                    else: cc[4].write("0")
+                    if tg2 > 0 and tg1 > 0 and price < tg1 and price > 0:
+                        diff2_pct = ((tg2 - price) / price) * 100
+                        cc[5].markdown(f"<span>{f'{tg2:,.0f}' if tg2>1000 else f'{tg2:,.2f}'}</span> <span style='color:{'#ff4b4b' if diff2_pct>0 else '#00bfff'};font-size:12px;font-weight:bold;'>({'+' if diff2_pct>0 else ''}{diff2_pct:.2f}%)</span>", unsafe_allow_html=True)
+                    else: cc[5].write(f"{tg2:,.0f}" if tg2 > 1000 else f"{tg2:,.2f}")
+                    cc[6].write(f"{item['band_pos']:.1f}%")
+                    
+                    # 🌟 점(•) 방지: 강제 text 출력 및 N/A 처리
+                    cc[7].text(f"{item['fr_rate']:.2f}%" if item['fr_rate'] > 0 else "N/A")
+                    cc[8].markdown(format_trend_html(item['trend']), unsafe_allow_html=True)
 
-                    display_rows.append({
-                        "tk": tk, "nm": nm, "dt": dt, "tg1": tg1, "tg2": tg2, 
-                        "price": price, "band_pos": band_pos, "diff1_pct": diff1_pct, 
-                        "sector": sector_map_watch.get(tk, "미분류"), 
-                        "fr_rate": fr_rate, "trend": supply_trend_map.get(tk, "데이터 없음")
-                    })
-
-                display_rows.sort(key=lambda x: {"종목명": x["nm"], "등록일 (최신순)": x["dt"], "현재가": x["price"], "1차매수 근접도(%)": x["diff1_pct"], "고저밴드(%)": x["band_pos"]}[sort_by], reverse=(sort_order == "내림차순"))
-                
-                # 🌟 [관심종목 10개 항목 재배치]
-                col_ratio_tab2 = [1.3, 0.8, 1, 1.0, 0.8, 0.8, 0.6, 0.8, 1.4, 1.5]
-                hc = st.columns(col_ratio_tab2)
-                for i, h in enumerate(["종목명", "등록일", "섹터", "현재가", "1차매수", "2차매수", "고저", "외인/기관%", "수급추세", "관리(수정/삭제)"]): 
-                    hc[i].write(f"**{h}**")
-                st.divider()
-
-                with st.container(height=600):
-                    for item in display_rows:
-                        tk, nm, dt, tg1, tg2, price, diff1_pct = item["tk"], item["nm"], item["dt"], item["tg1"], item["tg2"], item["price"], item["diff1_pct"]
-                        cc = st.columns(col_ratio_tab2)
-                        cc[0].write(f"**{nm}**\n({tk})")
-                        cc[1].write(dt)
-                        cc[2].write(str(item.get("sector", "미분류"))[:12])
-                        price_str = f"{price:,.0f}" if "KS" in tk or "KQ" in tk else f"{price:,.2f}"
-                        if price > 0:
-                            if tg1 > 0 and (price <= tg1 or diff1_pct >= -0.5): cc[3].markdown(f"<span style='background-color:#ff4b4b;color:white;font-weight:bold;padding:3px 6px;border-radius:4px;'>🚨 {price_str}</span>", unsafe_allow_html=True)
-                            elif tg1 > 0 and diff1_pct >= -3.0: cc[3].markdown(f"<span style='background-color:#ffd700;color:black;font-weight:bold;padding:3px 6px;border-radius:4px;'>🎯 {price_str}</span>", unsafe_allow_html=True)
-                            else: cc[3].write(price_str)
-                        else: cc[3].write("데이터 없음")
-                        if tg1 > 0: cc[4].markdown(f"<span>{f'{tg1:,.0f}' if tg1>1000 else f'{tg1:,.2f}'}</span> <span style='color:{'#ff4b4b' if diff1_pct>0 else '#00bfff'};font-size:12px;font-weight:bold;'>({'+' if diff1_pct>0 else ''}{diff1_pct:.2f}%)</span>", unsafe_allow_html=True)
-                        else: cc[4].write("0")
-                        if tg2 > 0 and tg1 > 0 and price < tg1 and price > 0:
-                            diff2_pct = ((tg2 - price) / price) * 100
-                            cc[5].markdown(f"<span>{f'{tg2:,.0f}' if tg2>1000 else f'{tg2:,.2f}'}</span> <span style='color:{'#ff4b4b' if diff2_pct>0 else '#00bfff'};font-size:12px;font-weight:bold;'>({'+' if diff2_pct>0 else ''}{diff2_pct:.2f}%)</span>", unsafe_allow_html=True)
-                        else: cc[5].write(f"{tg2:,.0f}" if tg2 > 1000 else f"{tg2:,.2f}")
-                        cc[6].write(f"{item['band_pos']:.1f}%")
-                        
-                        # 🌟 관심종목 수급 지표 출력
-                        cc[7].write(f"{item['fr_rate']:.2f}%" if item['fr_rate'] > 0 else "-")
-                        cc[8].markdown(format_trend_html(item['trend']), unsafe_allow_html=True)
-
-                        mc1, mc2, mc3, mc4 = cc[9].columns([1, 1, 0.8, 0.8])
-                        new_tg1 = mc1.number_input("1차", value=tg1, key=f"edit1_{tk}", label_visibility="collapsed")
-                        new_tg2 = mc2.number_input("2차", value=tg2, key=f"edit2_{tk}", label_visibility="collapsed")
-                        if mc3.button("수정", key=f"btn_edit_{tk}"): update_target_price(tk, new_tg1, new_tg2); st.rerun()
-                        if mc4.button("삭제", key=f"btn_del_{tk}"): delete_from_watchlist(tk); st.rerun()
-                        st.divider()
+                    mc1, mc2, mc3, mc4 = cc[9].columns([1, 1, 0.8, 0.8])
+                    new_tg1 = mc1.number_input("1차", value=tg1, key=f"edit1_{tk}", label_visibility="collapsed")
+                    new_tg2 = mc2.number_input("2차", value=tg2, key=f"edit2_{tk}", label_visibility="collapsed")
+                    if mc3.button("수정", key=f"btn_edit_{tk}"): update_target_price(tk, new_tg1, new_tg2); st.rerun()
+                    if mc4.button("삭제", key=f"btn_del_{tk}"): delete_from_watchlist(tk); st.rerun()
+                    st.divider()
 
 if __name__ == "__main__":
     if "streamlit" not in sys.modules and not sys.argv[0].endswith("streamlit"): print("\n🚨 전용 웹 구동기 작동 필요\n")
