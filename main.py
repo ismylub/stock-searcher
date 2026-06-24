@@ -159,6 +159,14 @@ def fetch_supply_trend_data():
     except:
         return {} 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_report_data():
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    try:
+        df = conn.read(worksheet="리포트_DATA", ttl=3600)
+        return df if not df.empty else pd.DataFrame()
+    except: return pd.DataFrame()
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_krx_full_search_map():
     try:
@@ -591,6 +599,22 @@ def start_100b_dashboard():
                         fig.update_layout(height=max(500, 300 + (len(active_subplots) * 200)), hovermode="x unified", dragmode="pan", margin=dict(l=80, r=40, t=40, b=40), xaxis_rangeslider_visible=False)
                         st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True})
                         st.divider()
+
+                    # 📄 [신규] 리포트 섹션 추가
+                    st.divider()
+                    st.subheader("📄 최신 증권사 리포트 (관심종목 자동 수집)")
+                    df_reports = fetch_report_data()
+                    target_report = df_reports[df_reports["Ticker"] == sel_tk] if not df_reports.empty else pd.DataFrame()
+                    
+                    if target_report.empty:
+                        st.info("해당 종목의 최근 수집된 리포트가 없습니다.")
+                    else:
+                        for _, r in target_report.iterrows():
+                            st.markdown(f"**[{r['증권사']}]** {r['제목']}")
+                            st.write(f"목표주가: {r['목표가']}")
+                            st.markdown(f"[🔗 리포트 원문 보기]({r['링크']})")
+                            st.divider()
+    
 
     with tab2:
         # 🌟 [개선] 탭2 제목과 뉴스 버튼을 가로로 예쁘게 배치
