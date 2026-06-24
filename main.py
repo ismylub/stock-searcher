@@ -232,6 +232,7 @@ def check_investor_streak_naver(ticker, investor_type, total_days, buy_days, min
     except: pass
     return False
 
+# 🌟 [뉴스 복구] 뉴스 가져오는 기능 함수 유지
 def fetch_news_rss(query, category):
     encoded_query = urllib.request.quote(f"{query} when:1d")
     url = f"https://news.google.com/rss/search?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
@@ -275,12 +276,12 @@ def start_100b_dashboard():
         for k, v in defaults.items(): st.session_state[k] = v
         if "matched_stocks" in st.session_state: del st.session_state["matched_stocks"]
 
-    st.set_page_config(page_title="나만의 주식 검색기 V7.4", layout="wide")
+    st.set_page_config(page_title="나만의 주식 검색기 V7.5", layout="wide")
     if "selected_ticker" not in st.session_state: st.session_state["selected_ticker"] = "NONE"
     registered_tickers = get_watchlist_df()["Ticker"].tolist()
 
     st.markdown("""<style>[data-testid="stSidebarUserContent"] { padding-top: 0rem !important; margin-top: -40px !important; } [data-testid="stSidebarUserContent"] h3 { font-size: 15px !important; margin-top: -20px !important; margin-bottom: -10px !important; } .inline-label { font-size: 13px !important; font-weight: bold; color: #333333; margin-top: -10px !important; margin-bottom: 2px !important; } div[data-baseweb="select"] { font-size: 12px !important; } div[data-baseweb="select"] > div { min-height: 40px !important; height: 40px !important; } [data-testid="stVerticalBlockBorderWrapper"] { padding: 5px 8px !important; margin-bottom: -20px !important; } .stButton button { min-height: 28px !important; height: 28px !important; font-size: 12px !important; padding: 0px 2px !important; white-space: nowrap !important; } hr { margin-top: 5px !important; margin-bottom: 5px !important; } [data-testid="stMarkdownContainer"] p { margin-bottom: 0px !important; } .stCheckbox { margin-top: 5px !important; } button[data-baseweb="tab"] { font-size: 16px !important; font-weight: bold !important; } div[data-testid="column"] p { font-size: 12px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; margin-bottom: 0px !important; letter-spacing: -0.5px; } div[data-testid="column"] button { font-size: 11px !important; padding: 0px 4px !important; }</style>""", unsafe_allow_html=True)
-    st.title("📈 100억 벌고 싶다 (V7.4 심플 최적화)")
+    st.title("📈 100억 벌고 싶다 (V7.5 뉴스 기능 완결)")
     st.divider()
 
     tab1, tab2 = st.tabs(["🔍 초고속 검색기", "⭐ 나의 관심종목 (신규 추가 가능)"])
@@ -401,6 +402,11 @@ def start_100b_dashboard():
                 per_cond, pbr_cond, k_foreigner_rate, k_trend_buy_pct = 0.0, 0.0, 0.0, 0
                 st.info("💡 ETF 모드에서는 재무 가치 지표 및 메인 수급 필터가 자동으로 제외됩니다.")
 
+            # 🌟 [뉴스 복구 1] 사이드바 하단에 뉴스 ON/OFF용 버튼 복구
+            st.markdown("---")
+            st.markdown("### 📰 실시간 정보")
+            st.button(" 관심종목 뉴스 스캔 (ON/OFF)", on_click=toggle_news_state, use_container_width=True)
+
             btn_label = "📊 우량 ETF 초고속 스캔 (실행)" if asset_type == "ETF 전용" else "🚀 글로벌 데이터 초고속 스캔 (실행)"
             search_btn = scan_action_placeholder.button(btn_label, use_container_width=True, type="primary")
 
@@ -497,7 +503,6 @@ def start_100b_dashboard():
                 st.success(f"총 {len(filtered_list)}개 자산 매칭 성공!")
                 
                 fr_header_text = "외인(%)" if c_m == "한국" else "기관(%)"
-                # 섹터(기존 1.1)를 뺐으므로 나머지 비율을 살짝 늘려 공간 확보 (총 10개)
                 col_ratio_tab1 = [0.6, 1.4, 1.1, 1.8, 1.2, 1.0, 1.0, 1.0, 1.0, 2.0]
                 h_cols = st.columns(col_ratio_tab1)
                 for i, h in enumerate(["순번", "선택", "티커", "종목명", "현재가", "1년고", "1년저", "고저밴드", fr_header_text, "수급추세"]): 
@@ -649,7 +654,6 @@ def start_100b_dashboard():
 
             display_rows.sort(key=lambda x: {"종목명": x["nm"], "등록일 (최신순)": x["dt"], "현재가": x["price"], "1차매수 근접도(%)": x["diff1_pct"], "고저밴드(%)": x["band_pos"]}[sort_by], reverse=(sort_order == "내림차순"))
             
-            # 섹터(기존 1) 제거로 비율 재조정 (총 9개 항목)
             col_ratio_tab2 = [1.3, 0.9, 1.0, 0.7, 0.7, 0.6, 1.0, 1.0, 2.0]
             hc = st.columns(col_ratio_tab2)
             for i, h in enumerate(["종목명", "등록일", "현재가", "1차매수", "2차매수", "고저", "외인/기관%", "수급추세", "관리(수정/삭제)"]): 
@@ -685,6 +689,36 @@ def start_100b_dashboard():
                     if mc3.button("수정", key=f"btn_edit_{tk}"): update_target_price(tk, new_tg1, new_tg2); st.rerun()
                     if mc4.button("삭제", key=f"btn_del_{tk}"): delete_from_watchlist(tk); st.rerun()
                     st.divider()
+
+            # 🌟 [뉴스 복구 2] 스위치가 ON 일때만 하단에 관심종목 뉴스 스캔 레이아웃 활성화
+            if st.session_state.get("show_news", False):
+                st.divider()
+                st.subheader("📰 내 관심종목 실시간 뉴스 브리핑")
+                
+                if st.session_state.get("auto_fetch_news", False) or "scraped_news" not in st.session_state:
+                    with st.spinner("관심종목 60일 뉴스 트래킹 중..."):
+                        all_news = []
+                        # 관심종목 리스트 순회하며 긁어오기
+                        for row_item in display_rows:
+                            nm_query = row_item["nm"]
+                            all_news.extend(fetch_news_rss(nm_query, nm_query))
+                        
+                        # 날짜 최신순 정렬
+                        all_news.sort(key=lambda x: x["date"], reverse=True)
+                        st.session_state["scraped_news"] = all_news
+                        st.session_state["auto_fetch_news"] = False
+
+                scraped = st.session_state.get("scraped_news", [])
+                if not scraped:
+                    st.info("최근 24시간 내에 등록된 관심종목 관련 뉴스가 없습니다.")
+                else:
+                    # 무한 증식 방지 스크롤 컨테이너 적용
+                    with st.container(height=500):
+                        for n in scraped:
+                            st.markdown(f"**[{n['category']}] {n['title']}** — <small style='color:gray;'>{n['source']} | {n['date']}</small>", unsafe_allow_html=True)
+                            st.write(n["desc"])
+                            st.markdown(f"[🔗 뉴스 기사 원문 보기]({n['link']})")
+                            st.divider()
 
 if __name__ == "__main__":
     if "streamlit" not in sys.modules and not sys.argv[0].endswith("streamlit"): print("\n🚨 전용 웹 구동기 작동 필요\n")
