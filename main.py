@@ -284,12 +284,12 @@ def start_100b_dashboard():
         for k, v in defaults.items(): st.session_state[k] = v
         if "matched_stocks" in st.session_state: del st.session_state["matched_stocks"]
 
-    st.set_page_config(page_title="나만의 주식 검색기 V7.7", layout="wide")
+    st.set_page_config(page_title="나만의 주식 검색기 V7.8", layout="wide")
     if "selected_ticker" not in st.session_state: st.session_state["selected_ticker"] = "NONE"
     registered_tickers = get_watchlist_df()["Ticker"].tolist()
 
     st.markdown("""<style>[data-testid="stSidebarUserContent"] { padding-top: 0rem !important; margin-top: -40px !important; } [data-testid="stSidebarUserContent"] h3 { font-size: 15px !important; margin-top: -20px !important; margin-bottom: -10px !important; } .inline-label { font-size: 13px !important; font-weight: bold; color: #333333; margin-top: -10px !important; margin-bottom: 2px !important; } div[data-baseweb="select"] { font-size: 12px !important; } div[data-baseweb="select"] > div { min-height: 40px !important; height: 40px !important; } [data-testid="stVerticalBlockBorderWrapper"] { padding: 5px 8px !important; margin-bottom: -20px !important; } .stButton button { min-height: 28px !important; height: 28px !important; font-size: 12px !important; padding: 0px 2px !important; white-space: nowrap !important; } hr { margin-top: 5px !important; margin-bottom: 5px !important; } [data-testid="stMarkdownContainer"] p { margin-bottom: 0px !important; } .stCheckbox { margin-top: 5px !important; } button[data-baseweb="tab"] { font-size: 16px !important; font-weight: bold !important; } div[data-testid="column"] p { font-size: 12px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; margin-bottom: 0px !important; letter-spacing: -0.5px; } div[data-testid="column"] button { font-size: 11px !important; padding: 0px 4px !important; }</style>""", unsafe_allow_html=True)
-    st.title("📈 100억 벌고 싶다 (V7.7)")
+    st.title("📈 100억 벌고 싶다 (V7.8)")
     st.divider()
 
     tab1, tab2 = st.tabs(["🔍 초고속 검색기", "⭐ 나의 관심종목 (신규 추가 가능)"])
@@ -599,21 +599,6 @@ def start_100b_dashboard():
                         st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True})
                         st.divider()
 
-                    # 📄 [신규] 리포트 섹션 추가
-                    st.subheader("📄 최신 증권사 리포트 (관심종목 자동 수집)")
-                    df_reports = fetch_report_data()
-                    target_report = df_reports[df_reports["Ticker"] == sel_tk] if not df_reports.empty else pd.DataFrame()
-                    
-                    if target_report.empty:
-                        st.info("해당 종목의 최근 수집된 리포트가 없습니다.")
-                    else:
-                        for _, r in target_report.iterrows():
-                            st.markdown(f"**[{r.get('증권사', 'N/A')}]** {r.get('제목', 'N/A')}")
-                            st.write(f"목표주가: {r.get('목표가', 'N/A')}")
-                            st.markdown(f"[🔗 리포트 원문 보기]({r.get('링크', '#')})")
-                            st.divider()
-    
-
     with tab2:
         # 🌟 [개선] 탭2 제목과 뉴스 버튼을 가로로 예쁘게 배치
         c_title, c_btn = st.columns([7, 3])
@@ -742,6 +727,33 @@ def start_100b_dashboard():
                             st.markdown(f"**[{n['category']}] {n['title']}** — <small style='color:gray;'>{n['source']} | {n['date']}</small>", unsafe_allow_html=True)
                             st.write(n["desc"])
                             st.markdown(f"[🔗 뉴스 기사 원문 보기]({n['link']})")
+                            st.divider()
+            
+            # =========================================================
+            # 📄 [신규] 탭2 하단: 내 관심종목 심층 리포트 모아보기
+            # =========================================================
+            st.divider()
+            st.subheader("📄 내 관심종목 최신 심층 리포트")
+            
+            df_reports = fetch_report_data()
+            if df_reports.empty:
+                st.info("현재 수집된 리포트가 없습니다. 내일 새벽 5시 업데이트를 기다려주세요.")
+            else:
+                # 관심종목 리스트에 있는 티커만 필터링
+                watch_tickers = [item["tk"] for item in display_rows]
+                my_reports = df_reports[df_reports["Ticker"].isin(watch_tickers)]
+                
+                if my_reports.empty:
+                    st.info("최근 발간된 관심종목 리포트가 없습니다.")
+                else:
+                    with st.container(height=400):
+                        for _, r in my_reports.iterrows():
+                            # 티커를 종목명으로 변환해서 보기 좋게 출력
+                            nm = next((item["nm"] for item in display_rows if item["tk"] == r["Ticker"]), r["Ticker"])
+                            st.markdown(f"### 🏢 {nm} ({r['Ticker']})")
+                            st.markdown(f"**[{r.get('증권사', 'N/A')}]** {r.get('제목', 'N/A')}")
+                            st.write(f"🎯 **목표주가:** {r.get('목표가', 'N/A')}")
+                            st.markdown(f"[🔗 리포트 PDF 원문 열기]({r.get('링크', '#')})")
                             st.divider()
 
 if __name__ == "__main__":
