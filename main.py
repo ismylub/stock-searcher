@@ -240,7 +240,6 @@ def check_investor_streak_naver(ticker, investor_type, total_days, buy_days, min
     except: pass
     return False
 
-# 🌟 [개선] 1일->7일로 기간을 넓히고, 종목당 핵심 뉴스 5개만 뽑도록 최적화
 def fetch_news_rss(query, category):
     encoded_query = urllib.request.quote(f"{query} when:7d") 
     url = f"https://news.google.com/rss/search?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
@@ -285,12 +284,12 @@ def start_100b_dashboard():
         for k, v in defaults.items(): st.session_state[k] = v
         if "matched_stocks" in st.session_state: del st.session_state["matched_stocks"]
 
-    st.set_page_config(page_title="나만의 주식 검색기 V7.6", layout="wide")
+    st.set_page_config(page_title="나만의 주식 검색기 V7.7", layout="wide")
     if "selected_ticker" not in st.session_state: st.session_state["selected_ticker"] = "NONE"
     registered_tickers = get_watchlist_df()["Ticker"].tolist()
 
     st.markdown("""<style>[data-testid="stSidebarUserContent"] { padding-top: 0rem !important; margin-top: -40px !important; } [data-testid="stSidebarUserContent"] h3 { font-size: 15px !important; margin-top: -20px !important; margin-bottom: -10px !important; } .inline-label { font-size: 13px !important; font-weight: bold; color: #333333; margin-top: -10px !important; margin-bottom: 2px !important; } div[data-baseweb="select"] { font-size: 12px !important; } div[data-baseweb="select"] > div { min-height: 40px !important; height: 40px !important; } [data-testid="stVerticalBlockBorderWrapper"] { padding: 5px 8px !important; margin-bottom: -20px !important; } .stButton button { min-height: 28px !important; height: 28px !important; font-size: 12px !important; padding: 0px 2px !important; white-space: nowrap !important; } hr { margin-top: 5px !important; margin-bottom: 5px !important; } [data-testid="stMarkdownContainer"] p { margin-bottom: 0px !important; } .stCheckbox { margin-top: 5px !important; } button[data-baseweb="tab"] { font-size: 16px !important; font-weight: bold !important; } div[data-testid="column"] p { font-size: 12px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; margin-bottom: 0px !important; letter-spacing: -0.5px; } div[data-testid="column"] button { font-size: 11px !important; padding: 0px 4px !important; }</style>""", unsafe_allow_html=True)
-    st.title("📈 100억 벌고 싶다 (V7.6)")
+    st.title("📈 100억 벌고 싶다 (V7.7)")
     st.divider()
 
     tab1, tab2 = st.tabs(["🔍 초고속 검색기", "⭐ 나의 관심종목 (신규 추가 가능)"])
@@ -601,7 +600,6 @@ def start_100b_dashboard():
                         st.divider()
 
                     # 📄 [신규] 리포트 섹션 추가
-                    st.divider()
                     st.subheader("📄 최신 증권사 리포트 (관심종목 자동 수집)")
                     df_reports = fetch_report_data()
                     target_report = df_reports[df_reports["Ticker"] == sel_tk] if not df_reports.empty else pd.DataFrame()
@@ -610,9 +608,9 @@ def start_100b_dashboard():
                         st.info("해당 종목의 최근 수집된 리포트가 없습니다.")
                     else:
                         for _, r in target_report.iterrows():
-                            st.markdown(f"**[{r['증권사']}]** {r['제목']}")
-                            st.write(f"목표주가: {r['목표가']}")
-                            st.markdown(f"[🔗 리포트 원문 보기]({r['링크']})")
+                            st.markdown(f"**[{r.get('증권사', 'N/A')}]** {r.get('제목', 'N/A')}")
+                            st.write(f"목표주가: {r.get('목표가', 'N/A')}")
+                            st.markdown(f"[🔗 리포트 원문 보기]({r.get('링크', '#')})")
                             st.divider()
     
 
