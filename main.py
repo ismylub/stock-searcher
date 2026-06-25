@@ -18,9 +18,6 @@ import json
 from streamlit_gsheets import GSheetsConnection
 from bs4 import BeautifulSoup
 
-# =======================================================================
-# 🛡️ 글로벌 설정
-# =======================================================================
 USE_PROXY = False
 PROXY_IP = "http://YOUR_PROXY_IP:PORT" 
 PROXY_DICT = {"http": PROXY_IP, "https": PROXY_IP}
@@ -139,6 +136,7 @@ def fetch_sheet_data(sheet_name):
         return data_dict
     except: return {}
 
+# 🌟 [수정] 60일 -> 20일로 계산 로직 변경
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_supply_trend_data():
     conn = st.connection("gsheets", type=GSheetsConnection)
@@ -147,10 +145,10 @@ def fetch_supply_trend_data():
         if df.empty: return {}
         trend_map = {}
         for ticker, group in df.groupby("티커"):
-            recent60 = group.tail(60)
-            net_buy_days = ((pd.to_numeric(recent60.get("외인순매수", 0), errors='coerce').fillna(0) + 
-                             pd.to_numeric(recent60.get("기관순매수", 0), errors='coerce').fillna(0)) > 0).sum()
-            total_days = len(recent60)
+            recent20 = group.tail(20) # 🌟 20일로 수정
+            net_buy_days = ((pd.to_numeric(recent20.get("외인순매수", 0), errors='coerce').fillna(0) + 
+                             pd.to_numeric(recent20.get("기관순매수", 0), errors='coerce').fillna(0)) > 0).sum()
+            total_days = len(recent20)
             if total_days > 0:
                 buy_pct = int((net_buy_days / total_days) * 100)
                 sell_pct = 100 - buy_pct
@@ -164,6 +162,15 @@ def fetch_report_data():
     conn = st.connection("gsheets", type=GSheetsConnection)
     try:
         df = conn.read(worksheet="리포트_DATA", ttl=3600)
+        return df if not df.empty else pd.DataFrame()
+    except: return pd.DataFrame()
+
+# 🌟 [신규] 공시 데이터 가져오기
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_disclosure_data():
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    try:
+        df = conn.read(worksheet="공시_DATA", ttl=3600)
         return df if not df.empty else pd.DataFrame()
     except: return pd.DataFrame()
 
@@ -219,27 +226,6 @@ def fetch_specific_timeframe_data(ticker, selection):
         return process_technical_indicators(yf.download(ticker, period=p, interval=i, **kwargs))
     except: return pd.DataFrame()
 
-def check_investor_streak_naver(ticker, investor_type, total_days, buy_days, min_vol_ratio=5.0):
-    if ".KS" not in ticker and ".KQ" not in ticker: return False
-    time.sleep(REQUEST_DELAY)
-    code = ticker.split(".")[0]
-    url = f"https://finance.naver.com/item/frgn.naver?code={code}&page=1"
-    try:
-        req_proxies = PROXY_DICT if USE_PROXY else None
-        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5, proxies=req_proxies)
-        res.encoding = "euc-kr"
-        df = pd.read_html(StringIO(res.text))[3].copy().dropna()
-        df.columns = ["날짜", "종가", "전일비", "등락률", "거래량", "기관", "외국인", "보유주수", "보유율"]
-        for col in ["기관", "외국인", "거래량"]: df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-        recent_df = df.head(total_days)
-        valid_foreign = (recent_df["외국인"] > 0) & (recent_df["거래량"] > 0) & ((recent_df["외국인"] / recent_df["거래량"] * 100) >= min_vol_ratio)
-        valid_inst = (recent_df["기관"] > 0) & (recent_df["거래량"] > 0) & ((recent_df["기관"] / recent_df["거래량"] * 100) >= min_vol_ratio)
-        if investor_type == "외인": return valid_foreign.sum() >= buy_days
-        elif investor_type == "기관": return valid_inst.sum() >= buy_days
-        elif investor_type == "양매수": return (valid_foreign.sum() >= buy_days) and (valid_inst.sum() >= buy_days)
-    except: pass
-    return False
-
 def fetch_news_rss(query, category):
     encoded_query = urllib.request.quote(f"{query} when:7d") 
     url = f"https://news.google.com/rss/search?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
@@ -275,9 +261,6 @@ def format_trend_html(trend_str):
         return f"<span style='color:{buy_color};font-weight:bold;'>{parts[0]}</span> / <span style='color:{sell_color};'>{parts[1]}</span>"
     return trend_str
 
-# =======================================================================
-# 🚀 메인 대시보드
-# =======================================================================
 def start_100b_dashboard():
     def reset_all_filters():
         defaults = {"k_market": "한국", "k_asset_type": "일반 주식", "k_array": "조건없음", "k_ma_n": 20, "k_ma_cond": "조건없음", "k_ichi": "조건없음", "k_bb": "조건없음", "k_macd": "조건없음", "k_rsi": (0, 100), "k_stoch": "조건없음", "k_vol": "조건없음", "k_vol_n": 20, "k_inv_type": "조건없음", "k_inv_m": 5, "k_inv_n": 3, "k_inv_pct": 5.0, "k_vol_rank": False, "k_ma_s": 5, "k_ma_l": 120, "k_ma_c": "조건없음", "k_bb_sq": False, "k_bb_sq_n": 20, "k_bb_sq_pct": 5.0, "k_maup_n": 20, "k_maup_m": 5, "k_maup_cond": "조건없음", "k_drop_cond": False, "k_drop_target": 30, "k_drop_margin": 5, "k_per": 0.0, "k_pbr": 0.0, "k_foreigner_rate": 0.0, "k_trend_buy_pct": 0}
@@ -289,7 +272,7 @@ def start_100b_dashboard():
     registered_tickers = get_watchlist_df()["Ticker"].tolist()
 
     st.markdown("""<style>[data-testid="stSidebarUserContent"] { padding-top: 0rem !important; margin-top: -40px !important; } [data-testid="stSidebarUserContent"] h3 { font-size: 15px !important; margin-top: -20px !important; margin-bottom: -10px !important; } .inline-label { font-size: 13px !important; font-weight: bold; color: #333333; margin-top: -10px !important; margin-bottom: 2px !important; } div[data-baseweb="select"] { font-size: 12px !important; } div[data-baseweb="select"] > div { min-height: 40px !important; height: 40px !important; } [data-testid="stVerticalBlockBorderWrapper"] { padding: 5px 8px !important; margin-bottom: -20px !important; } .stButton button { min-height: 28px !important; height: 28px !important; font-size: 12px !important; padding: 0px 2px !important; white-space: nowrap !important; } hr { margin-top: 5px !important; margin-bottom: 5px !important; } [data-testid="stMarkdownContainer"] p { margin-bottom: 0px !important; } .stCheckbox { margin-top: 5px !important; } button[data-baseweb="tab"] { font-size: 16px !important; font-weight: bold !important; } div[data-testid="column"] p { font-size: 12px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; margin-bottom: 0px !important; letter-spacing: -0.5px; } div[data-testid="column"] button { font-size: 11px !important; padding: 0px 4px !important; }</style>""", unsafe_allow_html=True)
-    st.title("📈 100억 벌고 싶다 (V7.8)")
+    st.title("📈 100억 벌고 싶다 (V7.8 심층분석 탑재)")
     st.divider()
 
     tab1, tab2 = st.tabs(["🔍 초고속 검색기", "⭐ 나의 관심종목 (신규 추가 가능)"])
@@ -405,7 +388,8 @@ def start_100b_dashboard():
                     fr_label = "외인지분(%)" if market == "한국" else "기관지분(%)"
                     k_foreigner_rate = st.number_input(f"{fr_label} 이상 (0=미적용)", min_value=0.0, max_value=100.0, value=st.session_state.get("k_foreigner_rate", 0.0), step=1.0, key="k_foreigner_rate")
                     
-                    k_trend_buy_pct = st.number_input("60일 매수비율(%) 이상 (0=미적용)", min_value=0, max_value=100, value=st.session_state.get("k_trend_buy_pct", 0), step=5, key="k_trend_buy_pct")
+                    # 🌟 [수정] 60일 -> 20일 문구 변경
+                    k_trend_buy_pct = st.number_input("20일 매수비율(%) 이상 (0=미적용)", min_value=0, max_value=100, value=st.session_state.get("k_trend_buy_pct", 0), step=5, key="k_trend_buy_pct")
             else:
                 per_cond, pbr_cond, k_foreigner_rate, k_trend_buy_pct = 0.0, 0.0, 0.0, 0
                 st.info("💡 ETF 모드에서는 재무 가치 지표 및 메인 수급 필터가 자동으로 제외됩니다.")
@@ -599,8 +583,39 @@ def start_100b_dashboard():
                         st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True})
                         st.divider()
 
+                    # =========================================================
+                    # 🌟 [신규 추가] 기업 심층 분석 (리포트 + DART 전자공시)
+                    # =========================================================
+                    c_rep, c_disc = st.columns(2)
+                    
+                    with c_rep:
+                        st.subheader("📄 최신 증권사 리포트")
+                        df_reports = fetch_report_data()
+                        target_report = df_reports[df_reports["Ticker"] == sel_tk] if not df_reports.empty else pd.DataFrame()
+                        
+                        if target_report.empty:
+                            st.info("수집된 최신 리포트가 없습니다.")
+                        else:
+                            for _, r in target_report.iterrows():
+                                st.markdown(f"**[{r.get('증권사', 'N/A')}]** {r.get('제목', 'N/A')}")
+                                st.write(f"목표주가: {r.get('목표가', 'N/A')}")
+                                st.markdown(f"[🔗 리포트 원문 보기]({r.get('링크', '#')})")
+                                st.divider()
+                                
+                    with c_disc:
+                        st.subheader("🏢 기업 핵심 공시 (DART 연동)")
+                        df_disc = fetch_disclosure_data()
+                        target_disc = df_disc[df_disc["Ticker"] == sel_tk] if not df_disc.empty else pd.DataFrame()
+                        
+                        if target_disc.empty:
+                            st.info("수집된 최근 공시가 없습니다.")
+                        else:
+                            for _, d in target_disc.iterrows():
+                                st.markdown(f"**[{d.get('날짜', '')}]** {d.get('제목', 'N/A')}")
+                                st.markdown(f"[🔗 공시 원문 보기]({d.get('링크', '#')})")
+                                st.divider()
+    
     with tab2:
-        # 🌟 [개선] 탭2 제목과 뉴스 버튼을 가로로 예쁘게 배치
         c_title, c_btn = st.columns([7, 3])
         with c_title:
             st.subheader("⭐ 나의 관심종목 포트폴리오")
@@ -702,7 +717,6 @@ def start_100b_dashboard():
                     if mc4.button("삭제", key=f"btn_del_{tk}"): delete_from_watchlist(tk); st.rerun()
                     st.divider()
 
-            # 🌟 [뉴스 렌더링 영역] 스위치가 켜지면 표 밑에 바로 뉴스 나옴
             if st.session_state.get("show_news", False):
                 st.divider()
                 st.subheader("📰 내 관심종목 실시간 뉴스 브리핑")
@@ -727,33 +741,6 @@ def start_100b_dashboard():
                             st.markdown(f"**[{n['category']}] {n['title']}** — <small style='color:gray;'>{n['source']} | {n['date']}</small>", unsafe_allow_html=True)
                             st.write(n["desc"])
                             st.markdown(f"[🔗 뉴스 기사 원문 보기]({n['link']})")
-                            st.divider()
-            
-            # =========================================================
-            # 📄 [신규] 탭2 하단: 내 관심종목 심층 리포트 모아보기
-            # =========================================================
-            st.divider()
-            st.subheader("📄 내 관심종목 최신 심층 리포트")
-            
-            df_reports = fetch_report_data()
-            if df_reports.empty:
-                st.info("현재 수집된 리포트가 없습니다. 내일 새벽 5시 업데이트를 기다려주세요.")
-            else:
-                # 관심종목 리스트에 있는 티커만 필터링
-                watch_tickers = [item["tk"] for item in display_rows]
-                my_reports = df_reports[df_reports["Ticker"].isin(watch_tickers)]
-                
-                if my_reports.empty:
-                    st.info("최근 발간된 관심종목 리포트가 없습니다.")
-                else:
-                    with st.container(height=400):
-                        for _, r in my_reports.iterrows():
-                            # 티커를 종목명으로 변환해서 보기 좋게 출력
-                            nm = next((item["nm"] for item in display_rows if item["tk"] == r["Ticker"]), r["Ticker"])
-                            st.markdown(f"### 🏢 {nm} ({r['Ticker']})")
-                            st.markdown(f"**[{r.get('증권사', 'N/A')}]** {r.get('제목', 'N/A')}")
-                            st.write(f"🎯 **목표주가:** {r.get('목표가', 'N/A')}")
-                            st.markdown(f"[🔗 리포트 PDF 원문 열기]({r.get('링크', '#')})")
                             st.divider()
 
 if __name__ == "__main__":
