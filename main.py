@@ -224,6 +224,7 @@ def fetch_specific_timeframe_data(ticker, selection):
         return process_technical_indicators(yf.download(ticker, period=p, interval=i, **kwargs))
     except: return pd.DataFrame()
 
+# 🌟 대한민국 표준시(KST)가 정확하게 탑재된 구글 RSS 뉴스 트래커
 def fetch_news_rss(query, category):
     encoded_query = urllib.request.quote(f"{query} when:7d") 
     url = f"https://news.google.com/rss/search?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
@@ -231,14 +232,14 @@ def fetch_news_rss(query, category):
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
         xml_data = get_urllib_opener().open(req, timeout=5).read()
         news_list = []
-        for item in ET.fromstring(xml_data).findall(".//item")[:5]: 
+        for item in ET.fromstring(xml_data).findall(".//item")[:3]: # 종목 스왑용이라 과부하 방지차 3개로 압축
             title, link, pub_date, source_tag = item.find("title").text, item.find("link").text, item.find("pubDate").text, item.find("source")
             desc = item.find("description").text if item.find("description") is not None else ""
             clean_desc = re.sub("<[^<]+?>", "", desc) if desc else ""
             clean_desc = clean_desc[:120] + "..." if len(clean_desc) > 120 else clean_desc
             try:
                 dt_obj = datetime.datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S %Z")
-                if "GMT" in pub_date or "UTC" in pub_date: dt_obj += datetime.timedelta(hours=9)
+                if "GMT" in pub_date or "UTC" in pub_date: dt_obj += datetime.timedelta(hours=9) # 🌟 한국 표준시 보정
                 formatted_date = dt_obj.strftime("%Y-%m-%d %H:%M")
             except: formatted_date = pub_date
             news_list.append({"category": category, "title": title, "date": formatted_date, "desc": clean_desc, "source": source_tag.text if source_tag is not None else "Google News", "link": link})
@@ -247,7 +248,6 @@ def fetch_news_rss(query, category):
 
 def toggle_news_state():
     st.session_state["show_news"] = not st.session_state.get("show_news", False)
-    if st.session_state["show_news"] and "scraped_news" not in st.session_state: st.session_state["auto_fetch_news"] = True
 
 def format_trend_html(trend_str):
     if not trend_str or "매수" not in trend_str: return "<span style='color:#aaaaaa;'>데이터 없음</span>"
@@ -265,12 +265,12 @@ def start_100b_dashboard():
         for k, v in defaults.items(): st.session_state[k] = v
         if "matched_stocks" in st.session_state: del st.session_state["matched_stocks"]
 
-    st.set_page_config(page_title="나만의 주식 검색기 V8.0", layout="wide")
+    st.set_page_config(page_title="나만의 주식 검색기 V8.1", layout="wide")
     if "selected_ticker" not in st.session_state: st.session_state["selected_ticker"] = "NONE"
     registered_tickers = get_watchlist_df()["Ticker"].tolist()
 
     st.markdown("""<style>[data-testid="stSidebarUserContent"] { padding-top: 0rem !important; margin-top: -40px !important; } [data-testid="stSidebarUserContent"] h3 { font-size: 15px !important; margin-top: -20px !important; margin-bottom: -10px !important; } .inline-label { font-size: 13px !important; font-weight: bold; color: #333333; margin-top: -10px !important; margin-bottom: 2px !important; } div[data-baseweb="select"] { font-size: 12px !important; } div[data-baseweb="select"] > div { min-height: 40px !important; height: 40px !important; } [data-testid="stVerticalBlockBorderWrapper"] { padding: 5px 8px !important; margin-bottom: -20px !important; } .stButton button { min-height: 28px !important; height: 28px !important; font-size: 12px !important; padding: 0px 2px !important; white-space: nowrap !important; } hr { margin-top: 5px !important; margin-bottom: 5px !important; } [data-testid="stMarkdownContainer"] p { margin-bottom: 0px !important; } .stCheckbox { margin-top: 5px !important; } button[data-baseweb="tab"] { font-size: 16px !important; font-weight: bold !important; } div[data-testid="column"] p { font-size: 12px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; margin-bottom: 0px !important; letter-spacing: -0.5px; } div[data-testid="column"] button { font-size: 11px !important; padding: 0px 4px !important; }</style>""", unsafe_allow_html=True)
-    st.title("📈 100억 벌고 싶다 (V8.0 완결판)")
+    st.title("📈 100억 벌고 싶다 (V8.1 하이브리드 연동)")
     st.divider()
 
     tab1, tab2 = st.tabs(["🔍 초고속 검색기", "⭐ 나의 관심종목 (신규 추가 가능)"])
@@ -520,9 +520,6 @@ def start_100b_dashboard():
                         cols[9].markdown(format_trend_html(item.get("수급추세", "N/A")), unsafe_allow_html=True)
                         st.divider()
 
-                # =========================================================
-                # 🚀 종합분석 (2줄 카드뷰 + 차트)
-                # =========================================================
                 sel_tk = st.session_state["selected_ticker"]
                 if sel_tk != "NONE":
                     st.divider()
@@ -586,7 +583,7 @@ def start_100b_dashboard():
         with c_btn:
             st.markdown("<br>", unsafe_allow_html=True)
             is_news_on = st.session_state.get('show_news', False)
-            btn_text = "📰 관심종목 뉴스 스캔 (🟢 ON)" if is_news_on else "📰 관심종목 뉴스 스캔 (⚫ OFF)"
+            btn_text = "📰 관심종목 뉴스 모드 (🟢 ON)" if is_news_on else "📰 뉴스 대신 심층분석 모드 (⚫ OFF)"
             st.button(btn_text, on_click=toggle_news_state, use_container_width=True, type="primary" if is_news_on else "secondary")
 
         with st.expander("➕ 리스트에 없는 새로운 종목 추가하기", expanded=False):
@@ -621,8 +618,8 @@ def start_100b_dashboard():
                 sheet_data_kr = fetch_sheet_data("KRX_DATA")
                 sheet_data_us = fetch_sheet_data("US_DATA")
                 supply_trend_map = fetch_supply_trend_data() 
-                df_reports = fetch_report_data() # 리포트 데이터
-                df_disc = fetch_disclosure_data() # 공시 데이터
+                df_reports = fetch_report_data() 
+                df_disc = fetch_disclosure_data() 
             
             sc1, sc2 = st.columns([2, 8])
             with sc1: sort_by = st.selectbox("정렬 기준", ["1차매수 근접도(%)", "종목명", "현재가", "등록일 (최신순)", "고저밴드(%)"], label_visibility="collapsed")
@@ -681,52 +678,42 @@ def start_100b_dashboard():
                 if mc3.button("수정", key=f"btn_edit_{tk}"): update_target_price(tk, new_tg1, new_tg2); st.rerun()
                 if mc4.button("삭제", key=f"btn_del_{tk}"): delete_from_watchlist(tk); st.rerun()
                 
-                # 🌟 [V8.0 핵심] 각 종목 바로 아래에 "심층 분석" 접기/펴기 버튼 (원클릭 확인)
-                if ".KS" in tk or ".KQ" in tk:
-                    with st.expander(f"📄 {nm} 심층 분석 (리포트 & 공시) 열어보기", expanded=False):
+                # 🌟 [V8.1 핵심 개편] 하이브리드 원클릭 디스플레이 영역
+                with st.expander(f"📄 {nm} 실시간 정보룸 (클릭하여 열기)", expanded=False):
+                    if is_news_on:
+                        # 🟢 뉴스 모드가 ON 일때 노출되는 7일치 타겟팅 뉴스
+                        st.markdown(f"##### 📰 {nm} 관련 실시간 뉴스 브리핑 (KST 기준)")
+                        scraped_news = fetch_news_rss(nm, nm)
+                        if not scraped_news:
+                            st.info("최근 7일 내에 등록된 관련 뉴스가 없습니다.")
+                        else:
+                            for n in scraped_news:
+                                st.markdown(f"**{n['title']}** — <small style='color:gray;'>{n['source']} | {n['date']}</small>", unsafe_allow_html=True)
+                                st.write(n["desc"])
+                                st.markdown(f"[🔗 뉴스 기사 원문 보기]({n['link']})")
+                                st.divider()
+                    else:
+                        # ⚫ 뉴스 모드가 OFF 일때 노출되는 고급 심층분석방 (리포트 + 공시)
                         r_col, d_col = st.columns(2)
                         with r_col:
-                            st.markdown("##### 💡 최신 증권사 리포트")
+                            st.markdown("##### 💡 최신 증권사 리포트 요약")
                             t_rep = df_reports[df_reports["Ticker"] == tk] if not df_reports.empty else pd.DataFrame()
                             if t_rep.empty: st.info("최근 수집된 리포트가 없습니다.")
                             else:
                                 for _, r in t_rep.iterrows():
                                     st.markdown(f"**[{r.get('증권사', '')}]** {r.get('제목', '')}")
-                                    st.caption(f"목표가: {r.get('목표가', '')} | [🔗PDF 원문보기]({r.get('링크', '#')})")
+                                    st.caption(f"[🔗 PDF 리포트 원문 링크 보기]({r.get('LINK', r.get('링크', '#'))})")
+                                    st.divider()
                         with d_col:
-                            st.markdown("##### 🏢 핵심 전자공시 (DART)")
+                            st.markdown("##### 🏢 핵심 정기/수주 공시 (DART)")
                             t_disc = df_disc[df_disc["Ticker"] == tk] if not df_disc.empty else pd.DataFrame()
                             if t_disc.empty: st.info("최근 수집된 핵심 공시가 없습니다.")
                             else:
                                 for _, d in t_disc.iterrows():
                                     st.markdown(f"**[{d.get('날짜', '')}]** {d.get('제목', '')}")
-                                    st.caption(f"[🔗공시 원문보기]({d.get('링크', '#')})")
+                                    st.caption(f"[🔗 전자공시 원문 확인하기]({d.get('링크', '#')})")
+                                    st.divider()
                 st.divider()
-
-            # 🌟 [뉴스 복구] ON 스위치 켰을 때만 렌더링
-            if st.session_state.get("show_news", False):
-                st.divider()
-                st.subheader("📰 내 관심종목 실시간 뉴스 브리핑")
-                if st.session_state.get("auto_fetch_news", False) or "scraped_news" not in st.session_state:
-                    with st.spinner("관심종목 7일 뉴스 트래킹 중... (종목당 5개)"):
-                        all_news = []
-                        for row_item in display_rows:
-                            nm_query = row_item["nm"]
-                            all_news.extend(fetch_news_rss(nm_query, nm_query))
-                        all_news.sort(key=lambda x: x["date"], reverse=True)
-                        st.session_state["scraped_news"] = all_news
-                        st.session_state["auto_fetch_news"] = False
-
-                scraped = st.session_state.get("scraped_news", [])
-                if not scraped:
-                    st.info("최근 7일 내에 등록된 관심종목 관련 뉴스가 없습니다.")
-                else:
-                    with st.container(height=500):
-                        for n in scraped:
-                            st.markdown(f"**[{n['category']}] {n['title']}** — <small style='color:gray;'>{n['source']} | {n['date']}</small>", unsafe_allow_html=True)
-                            st.write(n["desc"])
-                            st.markdown(f"[🔗 뉴스 기사 원문 보기]({n['link']})")
-                            st.divider()
 
 if __name__ == "__main__":
     if "streamlit" not in sys.modules and not sys.argv[0].endswith("streamlit"): print("\n🚨 전용 웹 구동기 작동 필요\n")
