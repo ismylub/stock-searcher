@@ -264,12 +264,12 @@ def start_100b_dashboard():
         for k, v in defaults.items(): st.session_state[k] = v
         if "matched_stocks" in st.session_state: del st.session_state["matched_stocks"]
 
-    st.set_page_config(page_title="나만의 주식 검색기 V8.2", layout="wide")
+    st.set_page_config(page_title="나만의 주식 검색기 V8.3", layout="wide")
     if "selected_ticker" not in st.session_state: st.session_state["selected_ticker"] = "NONE"
     registered_tickers = get_watchlist_df()["Ticker"].tolist()
 
     st.markdown("""<style>[data-testid="stSidebarUserContent"] { padding-top: 0rem !important; margin-top: -40px !important; } [data-testid="stSidebarUserContent"] h3 { font-size: 15px !important; margin-top: -20px !important; margin-bottom: -10px !important; } .inline-label { font-size: 13px !important; font-weight: bold; color: #333333; margin-top: -10px !important; margin-bottom: 2px !important; } div[data-baseweb="select"] { font-size: 12px !important; } div[data-baseweb="select"] > div { min-height: 40px !important; height: 40px !important; } [data-testid="stVerticalBlockBorderWrapper"] { padding: 5px 8px !important; margin-bottom: -20px !important; } .stButton button { min-height: 28px !important; height: 28px !important; font-size: 12px !important; padding: 0px 2px !important; white-space: nowrap !important; } hr { margin-top: 5px !important; margin-bottom: 5px !important; } [data-testid="stMarkdownContainer"] p { margin-bottom: 0px !important; } .stCheckbox { margin-top: 5px !important; } button[data-baseweb="tab"] { font-size: 16px !important; font-weight: bold !important; } div[data-testid="column"] p { font-size: 12px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; margin-bottom: 0px !important; letter-spacing: -0.5px; } div[data-testid="column"] button { font-size: 11px !important; padding: 0px 4px !important; }</style>""", unsafe_allow_html=True)
-    st.title("📈 100억 벌고 싶다 (V8.2 분리형 UI)")
+    st.title("📈 100억 벌고 싶다 (V8.3 UI 원상복구)")
     st.divider()
 
     tab1, tab2 = st.tabs(["🔍 초고속 검색기", "⭐ 나의 관심종목 (신규 추가 가능)"])
@@ -582,7 +582,7 @@ def start_100b_dashboard():
         with c_btn:
             st.markdown("<br>", unsafe_allow_html=True)
             is_news_on = st.session_state.get('show_news', False)
-            btn_text = "📰 관심종목 뉴스 스캔 (🟢 ON)" if is_news_on else "📰 관심종목 뉴스 스캔 (⚫ OFF)"
+            btn_text = "📰 관심종목 뉴스 모드 (🟢 ON)" if is_news_on else "📰 뉴스 대신 심층분석 모드 (⚫ OFF)"
             st.button(btn_text, on_click=toggle_news_state, use_container_width=True, type="primary" if is_news_on else "secondary")
 
         with st.expander("➕ 리스트에 없는 새로운 종목 추가하기", expanded=False):
@@ -649,35 +649,36 @@ def start_100b_dashboard():
                 hc[i].write(f"**{h}**")
             st.divider()
 
-            # --- 1️⃣ 상단: 종목 리스트 (접는 칸 없이 깔끔하게 표만 렌더링) ---
-            for item in display_rows:
-                tk, nm, dt, tg1, tg2, price, diff1_pct = item["tk"], item["nm"], item["dt"], item["tg1"], item["tg2"], item["price"], item["diff1_pct"]
-                cc = st.columns(col_ratio_tab2)
-                cc[0].write(f"**{nm}**\n({tk})")
-                cc[1].write(dt)
-                price_str = f"{price:,.0f}" if "KS" in tk or "KQ" in tk else f"{price:,.2f}"
-                if price > 0:
-                    if tg1 > 0 and (price <= tg1 or diff1_pct >= -0.5): cc[2].markdown(f"<span style='background-color:#ff4b4b;color:white;font-weight:bold;padding:3px 6px;border-radius:4px;'>🚨 {price_str}</span>", unsafe_allow_html=True)
-                    elif tg1 > 0 and diff1_pct >= -3.0: cc[2].markdown(f"<span style='background-color:#ffd700;color:black;font-weight:bold;padding:3px 6px;border-radius:4px;'>🎯 {price_str}</span>", unsafe_allow_html=True)
-                    else: cc[2].write(price_str)
-                else: cc[2].write("데이터 없음")
-                
-                if tg1 > 0: cc[3].markdown(f"<span>{f'{tg1:,.0f}' if tg1>1000 else f'{tg1:,.2f}'}</span> <span style='color:{'#ff4b4b' if diff1_pct>0 else '#00bfff'};font-size:12px;font-weight:bold;'>({'+' if diff1_pct>0 else ''}{diff1_pct:.2f}%)</span>", unsafe_allow_html=True)
-                else: cc[3].write("0")
-                if tg2 > 0 and tg1 > 0 and price < tg1 and price > 0:
-                    diff2_pct = ((tg2 - price) / price) * 100
-                    cc[4].markdown(f"<span>{f'{tg2:,.0f}' if tg2>1000 else f'{tg2:,.2f}'}</span> <span style='color:{'#ff4b4b' if diff2_pct>0 else '#00bfff'};font-size:12px;font-weight:bold;'>({'+' if diff2_pct>0 else ''}{diff2_pct:.2f}%)</span>", unsafe_allow_html=True)
-                else: cc[4].write(f"{tg2:,.0f}" if tg2 > 1000 else f"{tg2:,.2f}")
-                cc[5].write(f"{item['band_pos']:.1f}%")
-                cc[6].text(f"{item['fr_rate']:.2f}%" if item['fr_rate'] > 0 else "N/A")
-                cc[7].markdown(format_trend_html(item['trend']), unsafe_allow_html=True)
+            # --- 1️⃣ 상단: 종목 리스트 (스크롤 박스 복구) ---
+            with st.container(height=600):
+                for item in display_rows:
+                    tk, nm, dt, tg1, tg2, price, diff1_pct = item["tk"], item["nm"], item["dt"], item["tg1"], item["tg2"], item["price"], item["diff1_pct"]
+                    cc = st.columns(col_ratio_tab2)
+                    cc[0].write(f"**{nm}**\n({tk})")
+                    cc[1].write(dt)
+                    price_str = f"{price:,.0f}" if "KS" in tk or "KQ" in tk else f"{price:,.2f}"
+                    if price > 0:
+                        if tg1 > 0 and (price <= tg1 or diff1_pct >= -0.5): cc[2].markdown(f"<span style='background-color:#ff4b4b;color:white;font-weight:bold;padding:3px 6px;border-radius:4px;'>🚨 {price_str}</span>", unsafe_allow_html=True)
+                        elif tg1 > 0 and diff1_pct >= -3.0: cc[2].markdown(f"<span style='background-color:#ffd700;color:black;font-weight:bold;padding:3px 6px;border-radius:4px;'>🎯 {price_str}</span>", unsafe_allow_html=True)
+                        else: cc[2].write(price_str)
+                    else: cc[2].write("데이터 없음")
+                    
+                    if tg1 > 0: cc[3].markdown(f"<span>{f'{tg1:,.0f}' if tg1>1000 else f'{tg1:,.2f}'}</span> <span style='color:{'#ff4b4b' if diff1_pct>0 else '#00bfff'};font-size:12px;font-weight:bold;'>({'+' if diff1_pct>0 else ''}{diff1_pct:.2f}%)</span>", unsafe_allow_html=True)
+                    else: cc[3].write("0")
+                    if tg2 > 0 and tg1 > 0 and price < tg1 and price > 0:
+                        diff2_pct = ((tg2 - price) / price) * 100
+                        cc[4].markdown(f"<span>{f'{tg2:,.0f}' if tg2>1000 else f'{tg2:,.2f}'}</span> <span style='color:{'#ff4b4b' if diff2_pct>0 else '#00bfff'};font-size:12px;font-weight:bold;'>({'+' if diff2_pct>0 else ''}{diff2_pct:.2f}%)</span>", unsafe_allow_html=True)
+                    else: cc[4].write(f"{tg2:,.0f}" if tg2 > 1000 else f"{tg2:,.2f}")
+                    cc[5].write(f"{item['band_pos']:.1f}%")
+                    cc[6].text(f"{item['fr_rate']:.2f}%" if item['fr_rate'] > 0 else "N/A")
+                    cc[7].markdown(format_trend_html(item['trend']), unsafe_allow_html=True)
 
-                mc1, mc2, mc3, mc4 = cc[8].columns([1, 1, 0.8, 0.8])
-                new_tg1 = mc1.number_input("1차", value=tg1, key=f"edit1_{tk}", label_visibility="collapsed")
-                new_tg2 = mc2.number_input("2차", value=tg2, key=f"edit2_{tk}", label_visibility="collapsed")
-                if mc3.button("수정", key=f"btn_edit_{tk}"): update_target_price(tk, new_tg1, new_tg2); st.rerun()
-                if mc4.button("삭제", key=f"btn_del_{tk}"): delete_from_watchlist(tk); st.rerun()
-                st.divider()
+                    mc1, mc2, mc3, mc4 = cc[8].columns([1, 1, 0.8, 0.8])
+                    new_tg1 = mc1.number_input("1차", value=tg1, key=f"edit1_{tk}", label_visibility="collapsed")
+                    new_tg2 = mc2.number_input("2차", value=tg2, key=f"edit2_{tk}", label_visibility="collapsed")
+                    if mc3.button("수정", key=f"btn_edit_{tk}"): update_target_price(tk, new_tg1, new_tg2); st.rerun()
+                    if mc4.button("삭제", key=f"btn_del_{tk}"): delete_from_watchlist(tk); st.rerun()
+                    st.divider()
 
             # --- 2️⃣ 하단: 분리된 독립 정보룸 (스위치에 따라 뉴스 ↔ 심층분석 교체) ---
             if st.session_state.get("show_news", False):
