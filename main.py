@@ -54,26 +54,32 @@ def get_watchlist_df():
     conn = st.connection("gsheets", type=GSheetsConnection)
     try:
         df = conn.read(worksheet="관심종목", ttl=0)
-        if df.empty or "Ticker" not in df.columns: return pd.DataFrame(columns=["Ticker", "Name", "Target1", "Target2", "Date"])
+        if df.empty or "Ticker" not in df.columns: 
+            return pd.DataFrame(columns=["Ticker", "Name", "Target1", "Date", "Init_Frgn"])
+        
+        # 🌟 구버전 호환성을 위해 새 컬럼(Init_Frgn)이 없으면 생성해줌
+        if "Init_Frgn" not in df.columns:
+            df["Init_Frgn"] = 0.0
         return df
-    except: return pd.DataFrame(columns=["Ticker", "Name", "Target1", "Target2", "Date"])
+    except: 
+        return pd.DataFrame(columns=["Ticker", "Name", "Target1", "Date", "Init_Frgn"])
 
 def save_watchlist_df(df):
     conn = st.connection("gsheets", type=GSheetsConnection)
     conn.update(worksheet="관심종목", data=df)
 
-def save_to_watchlist_local(ticker, name, target1, target2):
+# 🌟 관심종목 등록 시점의 지분율(Init_Frgn)을 함께 저장하도록 수정
+def save_to_watchlist_local(ticker, name, target1, init_frgn=0.0):
     df = get_watchlist_df()
-    df_new = pd.DataFrame({"Ticker": [ticker], "Name": [name], "Target1": [target1], "Target2": [target2], "Date": [datetime.datetime.now().strftime("%Y-%m-%d")]})
+    df_new = pd.DataFrame({"Ticker": [ticker], "Name": [name], "Target1": [target1], "Date": [datetime.datetime.now().strftime("%Y-%m-%d")], "Init_Frgn": [init_frgn]})
     df_final = pd.concat([df[df["Ticker"] != ticker], df_new])
     save_watchlist_df(df_final)
     st.success(f"✅ [{name}] 관심종목 저장 완료!")
 
-def update_target_price(ticker, new_tg1, new_tg2):
+def update_target_price(ticker, new_tg1):
     df = get_watchlist_df()
     if not df.empty and ticker in df["Ticker"].values:
         df.loc[df["Ticker"] == ticker, "Target1"] = new_tg1
-        df.loc[df["Ticker"] == ticker, "Target2"] = new_tg2
         save_watchlist_df(df)
 
 def delete_from_watchlist(ticker):
@@ -258,18 +264,26 @@ def format_trend_html(trend_str):
         return f"<span style='color:{buy_color};font-weight:bold;'>{parts[0]}</span> / <span style='color:{sell_color};'>{parts[1]}</span>"
     return trend_str
 
+# 🌟 신규 종목 추가 시 현재 지분율을 찾아오는 유틸 함수
+def get_current_frgn_rate(ticker):
+    krx = fetch_sheet_data("KRX_DATA")
+    us = fetch_sheet_data("US_DATA")
+    if ticker in krx: return krx[ticker].get("Foreigner", 0.0)
+    if ticker in us: return us[ticker].get("Foreigner", 0.0)
+    return 0.0
+
 def start_100b_dashboard():
     def reset_all_filters():
         defaults = {"k_market": "한국", "k_asset_type": "일반 주식", "k_array": "조건없음", "k_ma_n": 20, "k_ma_cond": "조건없음", "k_ichi": "조건없음", "k_bb": "조건없음", "k_macd": "조건없음", "k_rsi": (0, 100), "k_stoch": "조건없음", "k_vol": "조건없음", "k_vol_n": 20, "k_inv_type": "조건없음", "k_inv_m": 5, "k_inv_n": 3, "k_inv_pct": 5.0, "k_vol_rank": False, "k_ma_s": 5, "k_ma_l": 120, "k_ma_c": "조건없음", "k_bb_sq": False, "k_bb_sq_n": 20, "k_bb_sq_pct": 5.0, "k_maup_n": 20, "k_maup_m": 5, "k_maup_cond": "조건없음", "k_drop_cond": False, "k_drop_target": 30, "k_drop_margin": 5, "k_per": 0.0, "k_pbr": 0.0, "k_foreigner_rate": 0.0, "k_trend_buy_pct": 0}
         for k, v in defaults.items(): st.session_state[k] = v
         if "matched_stocks" in st.session_state: del st.session_state["matched_stocks"]
 
-    st.set_page_config(page_title="나만의 주식 검색기 V8.3", layout="wide")
+    st.set_page_config(page_title="나만의 주식 검색기 V8.4", layout="wide")
     if "selected_ticker" not in st.session_state: st.session_state["selected_ticker"] = "NONE"
     registered_tickers = get_watchlist_df()["Ticker"].tolist()
 
     st.markdown("""<style>[data-testid="stSidebarUserContent"] { padding-top: 0rem !important; margin-top: -40px !important; } [data-testid="stSidebarUserContent"] h3 { font-size: 15px !important; margin-top: -20px !important; margin-bottom: -10px !important; } .inline-label { font-size: 13px !important; font-weight: bold; color: #333333; margin-top: -10px !important; margin-bottom: 2px !important; } div[data-baseweb="select"] { font-size: 12px !important; } div[data-baseweb="select"] > div { min-height: 40px !important; height: 40px !important; } [data-testid="stVerticalBlockBorderWrapper"] { padding: 5px 8px !important; margin-bottom: -20px !important; } .stButton button { min-height: 28px !important; height: 28px !important; font-size: 12px !important; padding: 0px 2px !important; white-space: nowrap !important; } hr { margin-top: 5px !important; margin-bottom: 5px !important; } [data-testid="stMarkdownContainer"] p { margin-bottom: 0px !important; } .stCheckbox { margin-top: 5px !important; } button[data-baseweb="tab"] { font-size: 16px !important; font-weight: bold !important; } div[data-testid="column"] p { font-size: 12px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; margin-bottom: 0px !important; letter-spacing: -0.5px; } div[data-testid="column"] button { font-size: 11px !important; padding: 0px 4px !important; }</style>""", unsafe_allow_html=True)
-    st.title("📈 100억 벌고 싶다 (V8.3 UI 원상복구)")
+    st.title("📈 100억 벌고 싶다 (V8.4 트래킹 탑재)")
     st.divider()
 
     tab1, tab2 = st.tabs(["🔍 초고속 검색기", "⭐ 나의 관심종목 (신규 추가 가능)"])
@@ -484,7 +498,7 @@ def start_100b_dashboard():
             else:
                 st.success(f"총 {len(filtered_list)}개 자산 매칭 성공!")
                 
-                fr_header_text = "외인(%)" if c_m == "한국" else "기관(%)"
+                fr_header_text = "지분(%)"
                 col_ratio_tab1 = [0.6, 1.4, 1.1, 1.8, 1.2, 1.0, 1.0, 1.0, 1.0, 2.0]
                 h_cols = st.columns(col_ratio_tab1)
                 for i, h in enumerate(["순번", "선택", "티커", "종목명", "현재가", "1년고", "1년저", "고저밴드", fr_header_text, "수급추세"]): 
@@ -503,10 +517,12 @@ def start_100b_dashboard():
 
                         if st.session_state.get(f"show_input_{item['티커']}"):
                             i_cols = st.columns([1, 1, 1])
-                            target1 = i_cols[0].number_input("1차", key=f"price1_{item['티커']}", label_visibility="collapsed")
-                            target2 = i_cols[1].number_input("2차", key=f"price2_{item['티커']}", label_visibility="collapsed")
-                            if i_cols[2].button("확정", key=f"save_{item['티커']}"):
-                                save_to_watchlist_local(item["티커"], item["종목명"], target1, target2)
+                            # 🌟 2차매수 삭제, 등록 당시의 지분율 스냅샷 넘기기
+                            target1 = i_cols[0].number_input("매수목표", key=f"price1_{item['티커']}", label_visibility="collapsed")
+                            if i_cols[1].button("확정", key=f"save_{item['티커']}"):
+                                fr_val = str(item.get("외인기관율", "0")).replace("%", "").replace("N/A", "0")
+                                init_frgn = float(fr_val) if fr_val else 0.0
+                                save_to_watchlist_local(item["티커"], item["종목명"], target1, init_frgn)
                                 st.session_state[f"show_input_{item['티커']}"] = False; st.rerun()
 
                         cols[2].write(item["티커"])
@@ -539,7 +555,7 @@ def start_100b_dashboard():
                         mc1, mc2, mc3 = st.columns(3)
                         mc1.metric("PER (가치 지표)", f"{f_per:.2f}" if c_a == "일반 주식" and f_per > 0 else "N/A")
                         mc2.metric("PBR (가치 지표)", f"{f_pbr:.2f}" if c_a == "일반 주식" and f_pbr > 0 else "N/A")
-                        fr_label_anal = "외인 보유율(%)" if c_m == "한국" else "기관 보유율(%)"
+                        fr_label_anal = "외인/기관 보유율(%)"
                         mc3.metric(fr_label_anal, f"{f_fr:.2f}%" if c_a == "일반 주식" and f_fr > 0 else "N/A")
                         
                         st.markdown("<br>", unsafe_allow_html=True)
@@ -605,7 +621,9 @@ def start_100b_dashboard():
                     with st.spinner(f"'{final_ticker}' 검색 중..."):
                         try:
                             if not yf.download(final_ticker, period="1d", progress=False).empty:
-                                save_to_watchlist_local(final_ticker, final_name, 0.0, 0.0); st.rerun()
+                                init_frgn = get_current_frgn_rate(final_ticker)
+                                save_to_watchlist_local(final_ticker, final_name, 0.0, init_frgn)
+                                st.rerun()
                             else: st.error("❌ 찾을 수 없습니다.")
                         except: st.error("🚨 오류 발생.")
 
@@ -627,32 +645,34 @@ def start_100b_dashboard():
             display_rows = []
             for _, row in df_watch.iterrows():
                 tk, nm, dt = row["Ticker"], row["Name"], row.get("Date", "N/A")
-                tg1, tg2 = float(row.get("Target1", 0)), float(row.get("Target2", 0))
+                tg1 = float(row.get("Target1", 0))
+                init_frgn = float(row.get("Init_Frgn", 0.0))
                 price = tech_map.get(tk, {}).get("Price", 0)
                 y_high, y_low = tech_map.get(tk, {}).get("1YearHigh", 0), tech_map.get(tk, {}).get("1YearLow", 0)
                 band_pos = ((price - y_low) / (y_high - y_low)) * 100 if y_high > 0 and (y_high - y_low) > 0 else 0
                 diff1_pct = ((tg1 - price) / price) * 100 if price > 0 and tg1 > 0 else -9999
                 
-                fr_rate = sheet_data_kr.get(tk, {}).get("Foreigner", 0.0) if ".KS" in tk or ".KQ" in tk else sheet_data_us.get(tk, {}).get("Foreigner", 0.0)
+                cur_fr_rate = sheet_data_kr.get(tk, {}).get("Foreigner", 0.0) if ".KS" in tk or ".KQ" in tk else sheet_data_us.get(tk, {}).get("Foreigner", 0.0)
 
                 display_rows.append({
-                    "tk": tk, "nm": nm, "dt": dt, "tg1": tg1, "tg2": tg2, 
+                    "tk": tk, "nm": nm, "dt": dt, "tg1": tg1, 
                     "price": price, "band_pos": band_pos, "diff1_pct": diff1_pct, 
-                    "fr_rate": fr_rate, "trend": supply_trend_map.get(tk, "데이터 없음")
+                    "init_frgn": init_frgn, "cur_fr_rate": cur_fr_rate, "trend": supply_trend_map.get(tk, "데이터 없음")
                 })
 
             display_rows.sort(key=lambda x: {"종목명": x["nm"], "등록일 (최신순)": x["dt"], "현재가": x["price"], "1차매수 근접도(%)": x["diff1_pct"], "고저밴드(%)": x["band_pos"]}[sort_by], reverse=(sort_order == "내림차순"))
             
-            col_ratio_tab2 = [1.3, 0.9, 1.0, 0.7, 0.7, 0.6, 1.0, 1.0, 2.0]
+            # 🌟 레이아웃 재배치 (2차 매수 삭제 & 지분율 컬럼 2개로 분할)
+            col_ratio_tab2 = [1.3, 0.9, 1.0, 0.8, 0.6, 0.9, 1.0, 1.0, 1.5]
             hc = st.columns(col_ratio_tab2)
-            for i, h in enumerate(["종목명", "등록일", "현재가", "1차매수", "2차매수", "고저", "외인/기관%", "수급추세", "관리(수정/삭제)"]): 
+            for i, h in enumerate(["종목명", "등록일", "현재가", "매수목표", "고저밴드", "등록 지분%", "현재 지분%", "수급추세", "관리(수정/삭제)"]): 
                 hc[i].write(f"**{h}**")
             st.divider()
 
-            # --- 1️⃣ 상단: 종목 리스트 (스크롤 박스 복구) ---
+            # --- 1️⃣ 상단: 종목 리스트 (스크롤 박스) ---
             with st.container(height=600):
                 for item in display_rows:
-                    tk, nm, dt, tg1, tg2, price, diff1_pct = item["tk"], item["nm"], item["dt"], item["tg1"], item["tg2"], item["price"], item["diff1_pct"]
+                    tk, nm, dt, tg1, price, diff1_pct = item["tk"], item["nm"], item["dt"], item["tg1"], item["price"], item["diff1_pct"]
                     cc = st.columns(col_ratio_tab2)
                     cc[0].write(f"**{nm}**\n({tk})")
                     cc[1].write(dt)
@@ -663,26 +683,41 @@ def start_100b_dashboard():
                         else: cc[2].write(price_str)
                     else: cc[2].write("데이터 없음")
                     
-                    if tg1 > 0: cc[3].markdown(f"<span>{f'{tg1:,.0f}' if tg1>1000 else f'{tg1:,.2f}'}</span> <span style='color:{'#ff4b4b' if diff1_pct>0 else '#00bfff'};font-size:12px;font-weight:bold;'>({'+' if diff1_pct>0 else ''}{diff1_pct:.2f}%)</span>", unsafe_allow_html=True)
+                    if tg1 > 0: cc[3].markdown(f"<span>{f'{tg1:,.0f}' if tg1>1000 else f'{tg1:,.2f}'}</span> <br><span style='color:{'#ff4b4b' if diff1_pct>0 else '#00bfff'};font-size:12px;font-weight:bold;'>({'+' if diff1_pct>0 else ''}{diff1_pct:.2f}%)</span>", unsafe_allow_html=True)
                     else: cc[3].write("0")
-                    if tg2 > 0 and tg1 > 0 and price < tg1 and price > 0:
-                        diff2_pct = ((tg2 - price) / price) * 100
-                        cc[4].markdown(f"<span>{f'{tg2:,.0f}' if tg2>1000 else f'{tg2:,.2f}'}</span> <span style='color:{'#ff4b4b' if diff2_pct>0 else '#00bfff'};font-size:12px;font-weight:bold;'>({'+' if diff2_pct>0 else ''}{diff2_pct:.2f}%)</span>", unsafe_allow_html=True)
-                    else: cc[4].write(f"{tg2:,.0f}" if tg2 > 1000 else f"{tg2:,.2f}")
-                    cc[5].write(f"{item['band_pos']:.1f}%")
-                    cc[6].text(f"{item['fr_rate']:.2f}%" if item['fr_rate'] > 0 else "N/A")
+                    
+                    cc[4].write(f"{item['band_pos']:.1f}%")
+                    
+                    # 🌟 과거 지분율 출력 (예전 데이터는 0이라 '기록없음' 처리)
+                    init_fr = item['init_frgn']
+                    if init_fr > 0:
+                        cc[5].write(f"{init_fr:.2f}%")
+                    else:
+                        cc[5].markdown("<span style='color:gray;font-size:12px;'>기록없음</span>", unsafe_allow_html=True)
+
+                    # 🌟 현재 지분율 & 과거 대비 증감(+/-) 출력
+                    cur_fr = item['cur_fr_rate']
+                    if cur_fr > 0:
+                        if init_fr > 0 and cur_fr != init_fr:
+                            diff_fr = cur_fr - init_fr
+                            color = "#ff4b4b" if diff_fr > 0 else "#00bfff"
+                            sign = "+" if diff_fr > 0 else ""
+                            cc[6].markdown(f"<span>{cur_fr:.2f}%</span> <br><span style='color:{color};font-size:11px;font-weight:bold;'>({sign}{diff_fr:.2f}%p)</span>", unsafe_allow_html=True)
+                        else:
+                            cc[6].write(f"{cur_fr:.2f}%")
+                    else:
+                        cc[6].write("N/A")
+
                     cc[7].markdown(format_trend_html(item['trend']), unsafe_allow_html=True)
 
-                    mc1, mc2, mc3, mc4 = cc[8].columns([1, 1, 0.8, 0.8])
-                    new_tg1 = mc1.number_input("1차", value=tg1, key=f"edit1_{tk}", label_visibility="collapsed")
-                    new_tg2 = mc2.number_input("2차", value=tg2, key=f"edit2_{tk}", label_visibility="collapsed")
-                    if mc3.button("수정", key=f"btn_edit_{tk}"): update_target_price(tk, new_tg1, new_tg2); st.rerun()
-                    if mc4.button("삭제", key=f"btn_del_{tk}"): delete_from_watchlist(tk); st.rerun()
+                    mc1, mc2, mc3 = cc[8].columns([1, 0.8, 0.8])
+                    new_tg1 = mc1.number_input("목표가", value=tg1, key=f"edit1_{tk}", label_visibility="collapsed")
+                    if mc2.button("수정", key=f"btn_edit_{tk}"): update_target_price(tk, new_tg1); st.rerun()
+                    if mc3.button("삭제", key=f"btn_del_{tk}"): delete_from_watchlist(tk); st.rerun()
                     st.divider()
 
-            # --- 2️⃣ 하단: 분리된 독립 정보룸 (스위치에 따라 뉴스 ↔ 심층분석 교체) ---
+            # --- 2️⃣ 하단: 분리된 독립 정보룸 ---
             if st.session_state.get("show_news", False):
-                # 🟢 뉴스 모드 ON
                 st.subheader("📰 내 관심종목 실시간 뉴스 브리핑 (KST)")
                 if st.session_state.get("auto_fetch_news", False) or "scraped_news" not in st.session_state:
                     with st.spinner("관심종목 7일 뉴스 트래킹 중... (종목당 5개)"):
@@ -705,14 +740,12 @@ def start_100b_dashboard():
                             st.markdown(f"[🔗 뉴스 기사 원문 보기]({n['link']})")
                             st.divider()
             else:
-                # ⚫ 뉴스 모드 OFF (기본): 관심종목 심층 분석 리포트룸
                 st.subheader("🏢 관심종목 기업 심층 분석 (증권사 리포트 & DART 전자공시)")
                 with st.container(height=600):
                     for row_item in display_rows:
                         tk = row_item["tk"]
                         nm = row_item["nm"]
                         
-                        # 한국 주식(.KS, .KQ)에 대해서만 렌더링 (미국 주식은 네이버 공시/리포트가 없으므로 패스)
                         if ".KS" in tk or ".KQ" in tk:
                             with st.expander(f"📌 {nm} ({tk}) 심층 분석 열어보기", expanded=False):
                                 r_col, d_col = st.columns(2)
