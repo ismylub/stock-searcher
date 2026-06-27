@@ -56,8 +56,6 @@ def get_watchlist_df():
         df = conn.read(worksheet="관심종목", ttl=0)
         if df.empty or "Ticker" not in df.columns: 
             return pd.DataFrame(columns=["Ticker", "Name", "Target1", "Date", "Init_Frgn"])
-        
-        # 🌟 구버전 호환성을 위해 새 컬럼(Init_Frgn)이 없으면 생성해줌
         if "Init_Frgn" not in df.columns:
             df["Init_Frgn"] = 0.0
         return df
@@ -68,7 +66,6 @@ def save_watchlist_df(df):
     conn = st.connection("gsheets", type=GSheetsConnection)
     conn.update(worksheet="관심종목", data=df)
 
-# 🌟 관심종목 등록 시점의 지분율(Init_Frgn)을 함께 저장하도록 수정
 def save_to_watchlist_local(ticker, name, target1, init_frgn=0.0):
     df = get_watchlist_df()
     df_new = pd.DataFrame({"Ticker": [ticker], "Name": [name], "Target1": [target1], "Date": [datetime.datetime.now().strftime("%Y-%m-%d")], "Init_Frgn": [init_frgn]})
@@ -186,6 +183,7 @@ def get_krx_full_search_map():
         return {row["Name"]: f"{str(row['Code']).zfill(6)}{'.KS' if 'KOSPI' in str(row.get('Market', '')).upper() else '.KQ'}" for _, row in df.iterrows()}
     except: return {}
 
+# 🌟 [수정] 미국 ETF 100종목 자동 수집으로 개편 완료
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_market_database(market_type, asset_type="일반 주식"):
     if asset_type == "일반 주식":
@@ -202,7 +200,21 @@ def get_market_database(market_type, asset_type="일반 주식"):
                 return {f"{str(row['Symbol']).zfill(6)}.KS": str(row["Name"]) for _, row in df.head(100).iterrows()}
             except: return {"122630.KS": "KODEX 레버리지"}
         else:
-            return {"SPY": "S&P 500", "QQQ": "NASDAQ 100"}
+            try:
+                df = fdr.StockListing("ETF/US")
+                # 미국 시장에서 AUM 기준 상위 100개 ETF를 가져옵니다.
+                return {str(row['Symbol']): str(row["Name"]) for _, row in df.head(100).iterrows()}
+            except: 
+                # 만약 통신 에러가 나더라도 든든하게 백업해줄 필수 ETF 20종목
+                return {
+                    "SPY": "SPDR S&P 500 ETF", "IVV": "iShares Core S&P 500 ETF", "VOO": "Vanguard S&P 500 ETF", 
+                    "VTI": "Vanguard Total Stock Market ETF", "QQQ": "Invesco QQQ Trust", "VEA": "Vanguard FTSE Developed Markets ETF",
+                    "IEFA": "iShares Core MSCI EAFE ETF", "VTV": "Vanguard Value ETF", "BND": "Vanguard Total Bond Market ETF",
+                    "SCHD": "Schwab US Dividend Equity ETF", "VUG": "Vanguard Value ETF", "IWF": "iShares Russell 1000 Growth ETF",
+                    "IWM": "iShares Russell 2000 ETF", "SOXX": "iShares Semiconductor ETF", "TQQQ": "ProShares UltraPro QQQ",
+                    "SQQQ": "ProShares UltraPro Short QQQ", "ARKK": "ARK Innovation ETF", "SMH": "VanEck Semiconductor ETF",
+                    "XLK": "Technology Select Sector SPDR Fund", "XLE": "Energy Select Sector SPDR Fund"
+                }
 
 @st.cache_data(ttl=14400, show_spinner=False)
 def build_database(market_type, timeframe="일봉", asset_type="일반 주식"):
@@ -264,7 +276,6 @@ def format_trend_html(trend_str):
         return f"<span style='color:{buy_color};font-weight:bold;'>{parts[0]}</span> / <span style='color:{sell_color};'>{parts[1]}</span>"
     return trend_str
 
-# 🌟 신규 종목 추가 시 현재 지분율을 찾아오는 유틸 함수
 def get_current_frgn_rate(ticker):
     krx = fetch_sheet_data("KRX_DATA")
     us = fetch_sheet_data("US_DATA")
@@ -278,12 +289,12 @@ def start_100b_dashboard():
         for k, v in defaults.items(): st.session_state[k] = v
         if "matched_stocks" in st.session_state: del st.session_state["matched_stocks"]
 
-    st.set_page_config(page_title="나만의 주식 검색기 V8.4", layout="wide")
+    st.set_page_config(page_title="나만의 주식 검색기 V8.5", layout="wide")
     if "selected_ticker" not in st.session_state: st.session_state["selected_ticker"] = "NONE"
     registered_tickers = get_watchlist_df()["Ticker"].tolist()
 
     st.markdown("""<style>[data-testid="stSidebarUserContent"] { padding-top: 0rem !important; margin-top: -40px !important; } [data-testid="stSidebarUserContent"] h3 { font-size: 15px !important; margin-top: -20px !important; margin-bottom: -10px !important; } .inline-label { font-size: 13px !important; font-weight: bold; color: #333333; margin-top: -10px !important; margin-bottom: 2px !important; } div[data-baseweb="select"] { font-size: 12px !important; } div[data-baseweb="select"] > div { min-height: 40px !important; height: 40px !important; } [data-testid="stVerticalBlockBorderWrapper"] { padding: 5px 8px !important; margin-bottom: -20px !important; } .stButton button { min-height: 28px !important; height: 28px !important; font-size: 12px !important; padding: 0px 2px !important; white-space: nowrap !important; } hr { margin-top: 5px !important; margin-bottom: 5px !important; } [data-testid="stMarkdownContainer"] p { margin-bottom: 0px !important; } .stCheckbox { margin-top: 5px !important; } button[data-baseweb="tab"] { font-size: 16px !important; font-weight: bold !important; } div[data-testid="column"] p { font-size: 12px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; margin-bottom: 0px !important; letter-spacing: -0.5px; } div[data-testid="column"] button { font-size: 11px !important; padding: 0px 4px !important; }</style>""", unsafe_allow_html=True)
-    st.title("📈 100억 벌고 싶다 (V8.4 트래킹 탑재)")
+    st.title("📈 100억 벌고 싶다 (V8.5 미국 ETF 개방)")
     st.divider()
 
     tab1, tab2 = st.tabs(["🔍 초고속 검색기", "⭐ 나의 관심종목 (신규 추가 가능)"])
@@ -517,7 +528,6 @@ def start_100b_dashboard():
 
                         if st.session_state.get(f"show_input_{item['티커']}"):
                             i_cols = st.columns([1, 1, 1])
-                            # 🌟 2차매수 삭제, 등록 당시의 지분율 스냅샷 넘기기
                             target1 = i_cols[0].number_input("매수목표", key=f"price1_{item['티커']}", label_visibility="collapsed")
                             if i_cols[1].button("확정", key=f"save_{item['티커']}"):
                                 fr_val = str(item.get("외인기관율", "0")).replace("%", "").replace("N/A", "0")
@@ -662,14 +672,12 @@ def start_100b_dashboard():
 
             display_rows.sort(key=lambda x: {"종목명": x["nm"], "등록일 (최신순)": x["dt"], "현재가": x["price"], "1차매수 근접도(%)": x["diff1_pct"], "고저밴드(%)": x["band_pos"]}[sort_by], reverse=(sort_order == "내림차순"))
             
-            # 🌟 레이아웃 재배치 (2차 매수 삭제 & 지분율 컬럼 2개로 분할)
             col_ratio_tab2 = [1.3, 0.9, 1.0, 0.8, 0.6, 0.9, 1.0, 1.0, 1.5]
             hc = st.columns(col_ratio_tab2)
             for i, h in enumerate(["종목명", "등록일", "현재가", "매수목표", "고저밴드", "등록 지분%", "현재 지분%", "수급추세", "관리(수정/삭제)"]): 
                 hc[i].write(f"**{h}**")
             st.divider()
 
-            # --- 1️⃣ 상단: 종목 리스트 (스크롤 박스) ---
             with st.container(height=600):
                 for item in display_rows:
                     tk, nm, dt, tg1, price, diff1_pct = item["tk"], item["nm"], item["dt"], item["tg1"], item["price"], item["diff1_pct"]
@@ -688,14 +696,12 @@ def start_100b_dashboard():
                     
                     cc[4].write(f"{item['band_pos']:.1f}%")
                     
-                    # 🌟 과거 지분율 출력 (예전 데이터는 0이라 '기록없음' 처리)
                     init_fr = item['init_frgn']
                     if init_fr > 0:
                         cc[5].write(f"{init_fr:.2f}%")
                     else:
                         cc[5].markdown("<span style='color:gray;font-size:12px;'>기록없음</span>", unsafe_allow_html=True)
 
-                    # 🌟 현재 지분율 & 과거 대비 증감(+/-) 출력
                     cur_fr = item['cur_fr_rate']
                     if cur_fr > 0:
                         if init_fr > 0 and cur_fr != init_fr:
@@ -716,7 +722,6 @@ def start_100b_dashboard():
                     if mc3.button("삭제", key=f"btn_del_{tk}"): delete_from_watchlist(tk); st.rerun()
                     st.divider()
 
-            # --- 2️⃣ 하단: 분리된 독립 정보룸 ---
             if st.session_state.get("show_news", False):
                 st.subheader("📰 내 관심종목 실시간 뉴스 브리핑 (KST)")
                 if st.session_state.get("auto_fetch_news", False) or "scraped_news" not in st.session_state:
