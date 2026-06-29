@@ -183,7 +183,6 @@ def get_krx_full_search_map():
         return {row["Name"]: f"{str(row['Code']).zfill(6)}{'.KS' if 'KOSPI' in str(row.get('Market', '')).upper() else '.KQ'}" for _, row in df.iterrows()}
     except: return {}
 
-# 🌟 [수정] 미국 ETF 100종목 자동 수집으로 개편 완료
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_market_database(market_type, asset_type="일반 주식"):
     if asset_type == "일반 주식":
@@ -202,10 +201,8 @@ def get_market_database(market_type, asset_type="일반 주식"):
         else:
             try:
                 df = fdr.StockListing("ETF/US")
-                # 미국 시장에서 AUM 기준 상위 100개 ETF를 가져옵니다.
                 return {str(row['Symbol']): str(row["Name"]) for _, row in df.head(100).iterrows()}
             except: 
-                # 만약 통신 에러가 나더라도 든든하게 백업해줄 필수 ETF 20종목
                 return {
                     "SPY": "SPDR S&P 500 ETF", "IVV": "iShares Core S&P 500 ETF", "VOO": "Vanguard S&P 500 ETF", 
                     "VTI": "Vanguard Total Stock Market ETF", "QQQ": "Invesco QQQ Trust", "VEA": "Vanguard FTSE Developed Markets ETF",
@@ -289,12 +286,12 @@ def start_100b_dashboard():
         for k, v in defaults.items(): st.session_state[k] = v
         if "matched_stocks" in st.session_state: del st.session_state["matched_stocks"]
 
-    st.set_page_config(page_title="나만의 주식 검색기 V8.5", layout="wide")
+    st.set_page_config(page_title="나만의 주식 검색기 V8.6", layout="wide")
     if "selected_ticker" not in st.session_state: st.session_state["selected_ticker"] = "NONE"
     registered_tickers = get_watchlist_df()["Ticker"].tolist()
 
     st.markdown("""<style>[data-testid="stSidebarUserContent"] { padding-top: 0rem !important; margin-top: -40px !important; } [data-testid="stSidebarUserContent"] h3 { font-size: 15px !important; margin-top: -20px !important; margin-bottom: -10px !important; } .inline-label { font-size: 13px !important; font-weight: bold; color: #333333; margin-top: -10px !important; margin-bottom: 2px !important; } div[data-baseweb="select"] { font-size: 12px !important; } div[data-baseweb="select"] > div { min-height: 40px !important; height: 40px !important; } [data-testid="stVerticalBlockBorderWrapper"] { padding: 5px 8px !important; margin-bottom: -20px !important; } .stButton button { min-height: 28px !important; height: 28px !important; font-size: 12px !important; padding: 0px 2px !important; white-space: nowrap !important; } hr { margin-top: 5px !important; margin-bottom: 5px !important; } [data-testid="stMarkdownContainer"] p { margin-bottom: 0px !important; } .stCheckbox { margin-top: 5px !important; } button[data-baseweb="tab"] { font-size: 16px !important; font-weight: bold !important; } div[data-testid="column"] p { font-size: 12px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; margin-bottom: 0px !important; letter-spacing: -0.5px; } div[data-testid="column"] button { font-size: 11px !important; padding: 0px 4px !important; }</style>""", unsafe_allow_html=True)
-    st.title("📈 100억 벌고 싶다 (V8.5 미국 ETF 개방)")
+    st.title("📈 100억 벌고 싶다 (V8.6 시간 표기 복구)")
     st.divider()
 
     tab1, tab2 = st.tabs(["🔍 초고속 검색기", "⭐ 나의 관심종목 (신규 추가 가능)"])
@@ -604,7 +601,9 @@ def start_100b_dashboard():
     with tab2:
         c_title, c_btn = st.columns([7, 3])
         with c_title:
-            st.subheader("⭐ 나의 관심종목 포트폴리오")
+            # 🌟 [V8.6 패치] 관심종목 타이틀 옆에 현재 업데이트 시간을 세련되게 복구!
+            now_time = datetime.datetime.now(pytz.timezone("Asia/Seoul")).strftime("%Y-%m-%d %H:%M")
+            st.markdown(f"### ⭐ 나의 관심종목 포트폴리오 <span style='font-size:14px; color:gray; font-weight:normal;'>(업데이트: {now_time})</span>", unsafe_allow_html=True)
         with c_btn:
             st.markdown("<br>", unsafe_allow_html=True)
             is_news_on = st.session_state.get('show_news', False)
