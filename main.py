@@ -452,6 +452,23 @@ def start_100b_dashboard():
                         if year_high == 0 or not (t_ratio - m_ratio <= band_position <= t_ratio + m_ratio): continue
                     if not (rsi_min <= latest["RSI"] <= rsi_max): continue
 
+                    # 🚀 [수정] 거래량 폭발 필터 로직 추가
+                    if vol_cond != "조건없음":
+                        # "300%" 문자열에서 숫자만 추출하여 배수(3.0)로 변환
+                        vol_multiplier = float(vol_cond.replace("%", "")) / 100.0
+                        
+                        # 당일을 제외한 최근 N봉의 평균 거래량 계산
+                        if len(df) > vol_n:
+                            avg_vol = df["Volume_line"].iloc[-(vol_n + 1):-1].mean()
+                            today_vol = df["Volume_line"].iloc[-1]
+                            
+                            # 과거 평균 거래량이 0이거나, 당일 거래량이 기준치(평균 x 배수)에 미치지 못하면 제외
+                            if avg_vol == 0 or today_vol < avg_vol * vol_multiplier:
+                                continue
+                        else:
+                            # 데이터가 N봉보다 적으면 필터링에서 제외
+                            continue
+
                     if array_cond != "조건없음":
                         ma5, ma20, ma60 = df["Close_line"].rolling(5).mean().iloc[-1], df["Close_line"].rolling(20).mean().iloc[-1], df["Close_line"].rolling(60).mean().iloc[-1]
                         if "정배열" in array_cond and not (ma5 > ma20 > ma60): continue
