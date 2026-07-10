@@ -452,6 +452,38 @@ def start_100b_dashboard():
                         if year_high == 0 or not (t_ratio - m_ratio <= band_position <= t_ratio + m_ratio): continue
                     if not (rsi_min <= latest["RSI"] <= rsi_max): continue
 
+                    # ==========================================
+                    # ⚡ 모멘텀 필터 로직 (누락분 추가)
+                    # ==========================================
+                    
+                    # 1. 일목균형표 필터
+                    if ichi_cond != "조건없음":
+                        span_a = latest["Ichimoku_SpanA"]
+                        span_b = latest["Ichimoku_SpanB"]
+                        # '위'는 주가가 구름대(Span A, B)보다 모두 높을 때
+                        if ichi_cond == "위" and (cp <= span_a or cp <= span_b): continue
+                        # '아래'는 주가가 구름대보다 모두 낮을 때
+                        if ichi_cond == "아래" and (cp >= span_a or cp >= span_b): continue
+                        
+                    # 2. 볼린저밴드 필터
+                    if bb_cond != "조건없음":
+                        bb_high = latest["BB_High"]
+                        bb_mid = df["Close_line"].rolling(20).mean().iloc[-1] 
+                        bb_low = latest["BB_Low"]
+                        
+                        if bb_cond == "상단" and cp < bb_high: continue
+                        if bb_cond == "중단" and abs(cp - bb_mid) / bb_mid > 0.01: continue # 중단선 1% 이내 근접
+                        if bb_cond == "하단" and cp > bb_low: continue
+
+                    # 3. MACD 필터
+                    if macd_cond != "조건없음":
+                        if macd_cond == "골든크로스" and not (prev["MACD"] < prev["MACD_Signal"] and latest["MACD"] > latest["MACD_Signal"]): continue
+                        if macd_cond == "0선돌파" and not (prev["MACD"] < 0 and latest["MACD"] > 0): continue
+                        
+                    # 4. 스토캐스틱 필터
+                    if stoch_cond != "조건없음":
+                        if stoch_cond == "20이하 골든크로스" and not (prev["Stoch_K"] < prev["Stoch_D"] and latest["Stoch_K"] > latest["Stoch_D"] and latest["Stoch_K"] <= 20): continue
+
                     # 🚀 [수정] 거래량 폭발 필터 로직 추가
                     if vol_cond != "조건없음":
                         # "300%" 문자열에서 숫자만 추출하여 배수(3.0)로 변환
