@@ -641,6 +641,56 @@ def start_100b_dashboard():
                         vc = ["rgba(255,50,50,0.8)" if c >= o else "rgba(50,50,255,0.8)" for o, c in zip(df["Open_line"], df["Close_line"])]
                         fig.add_trace(go.Bar(x=idx, y=df["Volume_line"], marker_color=vc, name="거래량"), row=1, col=1, secondary_y=True)
 
+                        # 이동평균선 (정/역배열 조건이나 이평선 조건이 켜져 있을 때 5, 20, 60일선 표시)
+                        if array_cond != "조건없음" or ma_cond != "조건없음":
+                            ma5 = df["Close_line"].rolling(5).mean()
+                            ma20 = df["Close_line"].rolling(20).mean()
+                            ma60 = df["Close_line"].rolling(60).mean()
+                            fig.add_trace(go.Scatter(x=idx, y=ma5, mode='lines', name='5일선', line=dict(color='#00bfff', width=1)), row=1, col=1)
+                            fig.add_trace(go.Scatter(x=idx, y=ma20, mode='lines', name='20일선', line=dict(color='#ffaa00', width=1.5)), row=1, col=1)
+                            fig.add_trace(go.Scatter(x=idx, y=ma60, mode='lines', name='60일선', line=dict(color='#ff4b4b', width=1.5)), row=1, col=1)
+                            # 사용자가 별도로 입력한 N봉(예: 120일선)이 기본 3개 이평선과 다를 경우 추가 표시
+                            if ma_cond != "조건없음" and ma_n not in [5, 20, 60]:
+                                ma_custom = df["Close_line"].rolling(ma_n).mean()
+                                fig.add_trace(go.Scatter(x=idx, y=ma_custom, mode='lines', name=f'{ma_n}일선', line=dict(color='purple', width=1.5, dash='dot')), row=1, col=1)
+
+                        # 볼린저 밴드
+                        if bb_cond != "조건없음":
+                            fig.add_trace(go.Scatter(x=idx, y=df["BB_High"], mode='lines', name='볼밴 상단', line=dict(color='rgba(150,150,150,0.5)', width=1)), row=1, col=1)
+                            fig.add_trace(go.Scatter(x=idx, y=df["BB_Low"], mode='lines', name='볼밴 하단', line=dict(color='rgba(150,150,150,0.5)', width=1), fill='tonexty', fillcolor='rgba(150,150,150,0.1)'), row=1, col=1)
+                            
+                        # 일목균형표 구름대
+                        if ichi_cond != "조건없음":
+                            fig.add_trace(go.Scatter(x=idx, y=df["Ichimoku_SpanA"], mode='lines', name='선행A', line=dict(color='rgba(144,238,144,0.5)', width=1)), row=1, col=1)
+                            fig.add_trace(go.Scatter(x=idx, y=df["Ichimoku_SpanB"], mode='lines', name='선행B', line=dict(color='rgba(255,182,193,0.5)', width=1), fill='tonexty', fillcolor='rgba(200,200,200,0.2)'), row=1, col=1)
+
+                        # =========================================================
+                        # 👉 [추가] 2. 하단 서브플롯 (RSI, 스토캐스틱, MACD)
+                        # =========================================================
+                        current_row = 2
+                        
+                        if "RSI" in active_subplots:
+                            fig.add_trace(go.Scatter(x=idx, y=df["RSI"], mode='lines', name='RSI', line=dict(color='purple')), row=current_row, col=1)
+                            fig.add_hline(y=70, line_dash="dot", line_color="red", row=current_row, col=1) # 과매수 기준선
+                            fig.add_hline(y=30, line_dash="dot", line_color="blue", row=current_row, col=1) # 과매도 기준선
+                            fig.update_yaxes(title_text="<b>RSI</b>", row=current_row, col=1)
+                            current_row += 1
+                            
+                        if "STOCH" in active_subplots:
+                            fig.add_trace(go.Scatter(x=idx, y=df["Stoch_K"], mode='lines', name='Stoch %K', line=dict(color='#00bfff')), row=current_row, col=1)
+                            fig.add_trace(go.Scatter(x=idx, y=df["Stoch_D"], mode='lines', name='Stoch %D', line=dict(color='#ffaa00')), row=current_row, col=1)
+                            fig.update_yaxes(title_text="<b>Stochastic</b>", row=current_row, col=1)
+                            current_row += 1
+                            
+                        if "MACD" in active_subplots:
+                            # MACD 히스토그램 색상 (양수 빨강, 음수 파랑)
+                            macd_colors = ['rgba(255,50,50,0.7)' if val > 0 else 'rgba(50,50,255,0.7)' for val in df["MACD_Hist"]]
+                            fig.add_trace(go.Bar(x=idx, y=df["MACD_Hist"], name='MACD Hist', marker_color=macd_colors), row=current_row, col=1)
+                            fig.add_trace(go.Scatter(x=idx, y=df["MACD"], mode='lines', name='MACD', line=dict(color='black')), row=current_row, col=1)
+                            fig.add_trace(go.Scatter(x=idx, y=df["MACD_Signal"], mode='lines', name='Signal', line=dict(color='red')), row=current_row, col=1)
+                            fig.update_yaxes(title_text="<b>MACD</b>", row=current_row, col=1)
+                            current_row += 1
+
                         fig.update_yaxes(title_text="<b>주가</b>", row=1, col=1, secondary_y=False)
                         fig.update_yaxes(title_text="<b>거래량</b>", showgrid=False, range=[0, df["Volume_line"].max() * 5], row=1, col=1, secondary_y=True)
                         fig.update_layout(height=max(500, 300 + (len(active_subplots) * 200)), hovermode="x unified", dragmode="pan", margin=dict(l=80, r=40, t=40, b=40), xaxis_rangeslider_visible=False)
