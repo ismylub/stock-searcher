@@ -728,11 +728,16 @@ def start_100b_dashboard():
                         else: final_name = search_term_upper  
                     with st.spinner(f"'{final_ticker}' 검색 중..."):
                         try:
-                            if not yf.download(final_ticker, period="1d", progress=False).empty:
-                                init_frgn = get_current_frgn_rate(final_ticker)
-                                save_to_watchlist_local(final_ticker, final_name, 0.0, init_frgn)
-                                st.rerun()
-                            else: st.error("❌ 찾을 수 없습니다.")
+                            # 👉 이미 리스트에 있는지 먼저 검사
+                            current_watchlist = get_watchlist_df()["Ticker"].tolist()
+                            if final_ticker in current_watchlist:
+                                st.warning(f"⚠️ 이미 관심종목에 등록되어 있는 종목입니다: {final_name}")
+                            else:
+                                if not yf.download(final_ticker, period="1d", progress=False).empty:
+                                    init_frgn = get_current_frgn_rate(final_ticker)
+                                    save_to_watchlist_local(final_ticker, final_name, 0.0, init_frgn)
+                                    st.rerun()
+                                else: st.error("❌ 찾을 수 없습니다.")
                         except: st.error("🚨 오류 발생.")
 
         df_watch = get_watchlist_df()
